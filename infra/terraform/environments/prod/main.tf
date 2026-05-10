@@ -58,6 +58,9 @@ module "greenspace_stack" {
   ses_sender_domain  = "un17hub.com"
   ses_reply_to_email = "elise7284@gmail.com"
 
+  shared_db_vpc_id   = "vpc-908203f9"
+  shared_db_vpc_cidr = "172.31.0.0/16"
+
   alarm_email = "ammonl@hotmail.com"
 
   amplify_branch_name             = "main"

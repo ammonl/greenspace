@@ -56,6 +56,9 @@ module "greenspace_stack" {
 
   ses_sender_domain = "staging.un17hub.com"
 
+  shared_db_vpc_id   = "vpc-908203f9"
+  shared_db_vpc_cidr = "172.31.0.0/16"
+
   enable_alarms    = false
   enable_dashboard = false
 
