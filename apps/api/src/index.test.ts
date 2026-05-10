@@ -79,7 +79,7 @@ describe("resolveDbConfig", () => {
       SecretString: JSON.stringify({
         host: "shared-db.example.com",
         port: 5432,
-        dbname: "greenspace_staging",
+        database: "greenspace_staging",
         username: "greenspace_staging_app",
         password: "secret-password",
       }),
@@ -108,7 +108,7 @@ describe("resolveDbConfig", () => {
       SecretString: JSON.stringify({
         host: "shared-db.example.com",
         port: "5432",
-        dbname: "greenspace_staging",
+        database: "greenspace_staging",
         username: "greenspace_staging_app",
         password: "secret-password",
       }),
@@ -136,7 +136,7 @@ describe("resolveDbConfig", () => {
       SecretString: JSON.stringify({
         host: "shared-db.example.com",
         port: "abc",
-        dbname: "greenspace_staging",
+        database: "greenspace_staging",
         username: "greenspace_staging_app",
         password: "secret-password",
       }),
