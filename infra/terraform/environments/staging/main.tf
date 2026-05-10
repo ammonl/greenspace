@@ -56,14 +56,8 @@ module "greenspace_stack" {
 
   ses_sender_domain = "staging.un17hub.com"
 
-  # Populate to enable runtime VPC peering to the shared RDS — see
-  # docs/adr/0001-shared-rds-connectivity.md. The accepter-side route and
-  # RDS SG ingress must already be in place in the shared-db repo before
-  # apply. Discover the values with:
-  #   aws ec2 describe-vpcs --filters Name=is-default,Values=true \
-  #     --query 'Vpcs[].{Id:VpcId,Cidr:CidrBlock}' --output table
-  shared_db_vpc_id   = null # e.g. "vpc-0123456789abcdef0"
-  shared_db_vpc_cidr = null # e.g. "172.31.0.0/16"
+  shared_db_vpc_id   = "vpc-908203f9"
+  shared_db_vpc_cidr = "172.31.0.0/16"
 
   enable_alarms    = false
   enable_dashboard = false
