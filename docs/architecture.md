@@ -347,7 +347,9 @@ path to the shared RDS endpoint. The connectivity model is **VPC peering**
 between each Greenspace VPC and the shared-db default VPC, with private
 DNS resolution enabled on the requester side so the public RDS endpoint
 name resolves to a private address inside the peered VPC. See
-`docs/adr/0001-shared-rds-connectivity.md` for the full decision record.
+`docs/adr/0001-shared-rds-connectivity.md` for the full decision record and
+`docs/runbooks/shared-rds-migration.md` for the data-migration runbook used
+during cutover.
 
 ### Environments
 

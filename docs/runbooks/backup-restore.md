@@ -123,3 +123,4 @@ Run a restore drill quarterly to verify backup integrity:
 - [RDS Point-in-Time Recovery](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIT.html)
 - Database Terraform config: `infra/terraform/modules/greenspace_stack/database.tf`
 - Incident triage: `docs/runbooks/incident-triage.md`
+- Shared-RDS migration runbook: `docs/runbooks/shared-rds-migration.md`
