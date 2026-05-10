@@ -143,7 +143,7 @@ let db: ReturnType<typeof createDatabase> | undefined;
 interface SharedDbSecret {
   host?: string;
   port?: number | string;
-  dbname?: string;
+  database?: string;
   username?: string;
   password?: string;
 }
@@ -171,9 +171,9 @@ export async function resolveDbConfig(): Promise<{
   const secretId = process.env["DB_SECRET_ID"];
   if (secretId) {
     const secret = await loadSharedDbSecret(secretId);
-    if (!secret.host || !secret.dbname || !secret.username || !secret.password) {
+    if (!secret.host || !secret.database || !secret.username || !secret.password) {
       throw new Error(
-        `Shared-db secret '${secretId}' is missing required fields (host, dbname, username, password)`,
+        `Shared-db secret '${secretId}' is missing required fields (host, database, username, password)`,
       );
     }
     const port = Number(secret.port ?? 5432);
@@ -185,7 +185,7 @@ export async function resolveDbConfig(): Promise<{
     return {
       host: secret.host,
       port,
-      database: secret.dbname,
+      database: secret.database,
       user: secret.username,
       password: secret.password,
       ssl,
