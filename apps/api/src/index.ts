@@ -140,36 +140,73 @@ function isScheduledEvent(event: LambdaEvent): event is ScheduledEvent {
 let router: Router | undefined;
 let db: ReturnType<typeof createDatabase> | undefined;
 
-async function resolveDbPassword(): Promise<string> {
-  if (process.env["DB_PASSWORD"]) {
-    return process.env["DB_PASSWORD"];
-  }
-  const secretArn = process.env["DB_SECRET_ARN"];
-  if (!secretArn) {
-    return "";
-  }
+interface SharedDbSecret {
+  host?: string;
+  port?: number | string;
+  dbname?: string;
+  username?: string;
+  password?: string;
+}
+
+async function loadSharedDbSecret(secretId: string): Promise<SharedDbSecret> {
   const { SecretsManagerClient, GetSecretValueCommand } = await import(
     "@aws-sdk/client-secrets-manager"
   );
   const client = new SecretsManagerClient({});
   const result = await client.send(
-    new GetSecretValueCommand({ SecretId: secretArn }),
+    new GetSecretValueCommand({ SecretId: secretId }),
   );
-  const secret = JSON.parse(result.SecretString ?? "{}") as Record<string, string>;
-  return secret["password"] ?? "";
+  return JSON.parse(result.SecretString ?? "{}") as SharedDbSecret;
+}
+
+export async function resolveDbConfig(): Promise<{
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  ssl: boolean;
+}> {
+  const ssl = process.env["DB_SSL"] === "true";
+  const secretId = process.env["DB_SECRET_ID"];
+  if (secretId) {
+    const secret = await loadSharedDbSecret(secretId);
+    if (!secret.host || !secret.dbname || !secret.username || !secret.password) {
+      throw new Error(
+        `Shared-db secret '${secretId}' is missing required fields (host, dbname, username, password)`,
+      );
+    }
+    const port = Number(secret.port ?? 5432);
+    if (!Number.isFinite(port)) {
+      throw new Error(
+        `Shared-db secret '${secretId}' has non-numeric port: ${String(secret.port)}`,
+      );
+    }
+    return {
+      host: secret.host,
+      port,
+      database: secret.dbname,
+      user: secret.username,
+      password: secret.password,
+      ssl,
+    };
+  }
+  // Local-dev fallback. The defaults match the docker-compose Postgres in
+  // CLAUDE.md; deployed environments always set DB_SECRET_ID and never reach
+  // this branch.
+  return {
+    host: process.env["DB_HOST"] ?? "localhost",
+    port: Number(process.env["DB_PORT"] ?? "5432"),
+    database: process.env["DB_NAME"] ?? "greenspace",
+    user: process.env["DB_USER"] ?? "greenspace",
+    password: process.env["DB_PASSWORD"] ?? "",
+    ssl,
+  };
 }
 
 async function ensureDb(): Promise<ReturnType<typeof createDatabase>> {
   if (!db) {
-    const password = await resolveDbPassword();
-    db = createDatabase({
-      host: process.env["DB_HOST"] ?? "localhost",
-      port: Number(process.env["DB_PORT"] ?? "5432"),
-      database: process.env["DB_NAME"] ?? "greenspace",
-      user: process.env["DB_USER"] ?? "greenspace",
-      password,
-      ssl: process.env["DB_SSL"] === "true",
-    });
+    db = createDatabase(await resolveDbConfig());
   }
   return db;
 }

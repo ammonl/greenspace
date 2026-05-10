@@ -33,22 +33,13 @@ resource "aws_iam_role_policy_attachment" "api_vpc_access" {
 
 data "aws_iam_policy_document" "api_secrets" {
   statement {
+    sid    = "SharedDbSecretRead"
     effect = "Allow"
     actions = [
       "secretsmanager:GetSecretValue",
     ]
     resources = [
-      "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.naming_prefix}-*",
-    ]
-  }
-
-  statement {
-    effect = "Allow"
-    actions = [
-      "kms:Decrypt",
-    ]
-    resources = [
-      aws_kms_key.data.arn,
+      "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.shared_db_secret_name}-*",
     ]
   }
 }

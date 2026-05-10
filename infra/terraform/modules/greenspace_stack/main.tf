@@ -15,6 +15,12 @@ terraform {
 
 locals {
   naming_prefix = "${var.project}-${var.environment}-${var.season}"
+
+  # Shared-db Secrets Manager secret consumed by the API runtime. The shared-db
+  # repo creates one secret per project/environment with this fixed name; the
+  # ARN includes a random AWS-generated suffix that this module does not know,
+  # so callers reference the name and IAM uses a `name-*` resource pattern.
+  shared_db_secret_name = "rds/shared/${var.project}_${var.environment}"
 }
 
 output "naming_prefix" {
