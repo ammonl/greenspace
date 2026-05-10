@@ -448,7 +448,7 @@ Custom router (`apps/api/src/router.ts`) — not Express/Fastify. `Router` expos
 
 `apps/api/src/index.ts#handler` is the single entry point. It dispatches three event shapes: HTTP requests, EventBridge `Scheduled Event` (hourly session cleanup), and `{action: "migrate"}` (one-shot migrate+seed). The `dev-server.ts` and `lambda.ts` files just adapt their respective transports onto this handler.
 
-DB connection is lazily initialized once per Lambda container (`db` singleton in `index.ts`) and resolves the password from `DB_PASSWORD` or AWS Secrets Manager (`DB_SECRET_ARN`).
+DB connection is lazily initialized once per Lambda container (`db` singleton in `index.ts`). In deployed environments it loads `host`, `port`, `dbname`, `username`, and `password` from the shared-db Secrets Manager secret pointed at by `DB_SECRET_ID` (e.g. `rds/shared/greenspace_staging`). For local dev, when `DB_SECRET_ID` is unset, it falls back to the individual `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` env vars.
 
 Staging-only routes (`/admin/staging/*`) are gated by `process.env.ENVIRONMENT === "staging"` — keep destructive helpers behind this guard.
 

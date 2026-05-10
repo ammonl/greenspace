@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { getGreenhouses, createRouter, handler } from "./index.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getGreenhouses, createRouter, handler, resolveDbConfig } from "./index.js";
+
+const { secretsManagerSendMock } = vi.hoisted(() => ({
+  secretsManagerSendMock: vi.fn(),
+}));
 
 vi.mock("./lib/session.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/session.js")>();
@@ -11,6 +15,13 @@ vi.mock("./lib/session.js", async (importOriginal) => {
 
 vi.mock("./db/connection.js", () => ({
   createDatabase: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock("@aws-sdk/client-secrets-manager", () => ({
+  SecretsManagerClient: vi.fn().mockImplementation(() => ({
+    send: secretsManagerSendMock,
+  })),
+  GetSecretValueCommand: vi.fn().mockImplementation((input: unknown) => input),
 }));
 
 describe("api", () => {
@@ -49,5 +60,74 @@ describe("handler", () => {
 
     const result = await handler(event);
     expect(result.statusCode).toBe(200);
+  });
+});
+
+describe("resolveDbConfig", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    secretsManagerSendMock.mockReset();
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("loads connection params from the shared-db secret when DB_SECRET_ID is set", async () => {
+    secretsManagerSendMock.mockResolvedValueOnce({
+      SecretString: JSON.stringify({
+        host: "shared-db.example.com",
+        port: 5432,
+        dbname: "greenspace_staging",
+        username: "greenspace_staging_app",
+        password: "secret-password",
+      }),
+    });
+    process.env["DB_SECRET_ID"] = "rds/shared/greenspace_staging";
+    process.env["DB_SSL"] = "true";
+
+    const config = await resolveDbConfig();
+
+    expect(secretsManagerSendMock).toHaveBeenCalledOnce();
+    expect(config).toEqual({
+      host: "shared-db.example.com",
+      port: 5432,
+      database: "greenspace_staging",
+      user: "greenspace_staging_app",
+      password: "secret-password",
+      ssl: true,
+    });
+  });
+
+  it("throws when the shared-db secret is missing required fields", async () => {
+    secretsManagerSendMock.mockResolvedValueOnce({
+      SecretString: JSON.stringify({ host: "shared-db.example.com" }),
+    });
+    process.env["DB_SECRET_ID"] = "rds/shared/greenspace_staging";
+
+    await expect(resolveDbConfig()).rejects.toThrow(/missing required fields/);
+  });
+
+  it("falls back to individual env vars when DB_SECRET_ID is not set", async () => {
+    delete process.env["DB_SECRET_ID"];
+    process.env["DB_HOST"] = "localhost";
+    process.env["DB_PORT"] = "5433";
+    process.env["DB_NAME"] = "greenspace_local";
+    process.env["DB_USER"] = "dev";
+    process.env["DB_PASSWORD"] = "localpass";
+    delete process.env["DB_SSL"];
+
+    const config = await resolveDbConfig();
+
+    expect(secretsManagerSendMock).not.toHaveBeenCalled();
+    expect(config).toEqual({
+      host: "localhost",
+      port: 5433,
+      database: "greenspace_local",
+      user: "dev",
+      password: "localpass",
+      ssl: false,
+    });
   });
 });
