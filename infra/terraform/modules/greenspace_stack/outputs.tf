@@ -25,6 +25,16 @@ output "db_security_group_id" {
   value       = aws_security_group.db.id
 }
 
+output "vpc_cidr" {
+  description = "CIDR block of the VPC. The shared-db side consumes this when adding the accepter-side route and RDS SG ingress for the peering connection."
+  value       = aws_vpc.main.cidr_block
+}
+
+output "shared_db_peering_connection_id" {
+  description = "ID of the VPC peering connection to the shared-RDS VPC. Null when `shared_db_vpc_id` is not set."
+  value       = try(aws_vpc_peering_connection.shared_db[0].id, null)
+}
+
 # ---------- IAM ----------
 
 output "api_runtime_role_arn" {

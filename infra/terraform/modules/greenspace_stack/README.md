@@ -7,12 +7,32 @@ the staging and production environment stacks.
 
 | File             | Resources                                                  |
 |------------------|------------------------------------------------------------|
-| `networking.tf`  | VPC, public/private subnets, internet gateway, NAT gateway |
+| `networking.tf`  | VPC, public/private subnets, internet gateway, VPC endpoints |
+| `peering.tf`     | Optional VPC peering to the shared-RDS VPC (gated)         |
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `database.tf`    | RDS PostgreSQL instance, subnet group, Secrets Manager     |
 | `ses.tf`         | SES domain identity, DKIM, configuration set               |
 | `dns.tf`         | Route 53 hosted zone, SES verification/DKIM DNS records    |
 | `monitoring.tf`  | CloudWatch log groups, KMS encryption key                  |
+
+## Shared-RDS connectivity
+
+`peering.tf` provides an opt-in private path from the API Lambda to the
+shared RDS instance owned by `ammonlarson/infra-shared-db`. The peering is
+gated on `shared_db_vpc_id`: when null (the default), no peering resources
+are created. See `docs/adr/0001-shared-rds-connectivity.md` for the full
+context.
+
+To activate, set both inputs in the environment config:
+
+```hcl
+shared_db_vpc_id   = "vpc-xxxxxxxx"  # default VPC of the shared-db account
+shared_db_vpc_cidr = "172.31.0.0/16" # CIDR of that VPC
+```
+
+The shared-db side must independently add its accepter-side route, RDS SG
+ingress from the Greenspace VPC CIDR, and
+`accepter.allow_remote_vpc_dns_resolution = true` for traffic to flow.
 
 ## Least-privilege IAM
 
@@ -55,6 +75,8 @@ are managed by Terraform. After the first `terraform apply`:
 | `ses_sender_domain`           | Domain for SES identity and Route 53 zone            |
 | `ses_reply_to_email`          | Default Reply-To (defaults to `elise7284@gmail.com`) |
 | `db_instance_class`           | RDS instance class                                   |
+| `shared_db_vpc_id`            | Shared-RDS VPC ID; null disables peering             |
+| `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |
 
 See `variables.tf` for the full list with descriptions and defaults.
 

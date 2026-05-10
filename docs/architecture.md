@@ -337,6 +337,18 @@ graph TB
     SES_ID --> SES_DKIM
 ```
 
+### Shared-RDS connectivity
+
+Greenspace is migrating off its dedicated per-environment RDS onto the
+shared instance owned by `ammonlarson/infra-shared-db`. Because the
+Greenspace VPCs run without NAT (only VPC interface endpoints for SES and
+Secrets Manager), Lambda has no internet egress and therefore no public
+path to the shared RDS endpoint. The connectivity model is **VPC peering**
+between each Greenspace VPC and the shared-db default VPC, with private
+DNS resolution enabled on the requester side so the public RDS endpoint
+name resolves to a private address inside the peered VPC. See
+`docs/adr/0001-shared-rds-connectivity.md` for the full decision record.
+
 ### Environments
 
 | Environment | Domain                | VPC CIDR       | RDS Instance    |

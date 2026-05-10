@@ -47,6 +47,28 @@ variable "private_subnet_cidrs" {
   type        = list(string)
 }
 
+variable "shared_db_vpc_id" {
+  description = "VPC ID of the shared-RDS VPC owned by `ammonlarson/infra-shared-db`. When non-null, this module establishes a VPC peering connection from this environment's VPC to that one for runtime DB access. When null, no peering resources are created."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_db_vpc_id == null || can(regex("^vpc-[a-f0-9]+$", var.shared_db_vpc_id))
+    error_message = "shared_db_vpc_id must be a valid AWS VPC ID (vpc-...) or null."
+  }
+}
+
+variable "shared_db_vpc_cidr" {
+  description = "CIDR block of the shared-RDS VPC. Required when `shared_db_vpc_id` is set; the private route table gets a route to this CIDR via the peering connection."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_db_vpc_cidr == null || can(cidrhost(var.shared_db_vpc_cidr, 0))
+    error_message = "shared_db_vpc_cidr must be a valid CIDR block or null."
+  }
+}
+
 # ---------- IAM / CI ----------
 
 variable "github_oidc_provider_arn" {

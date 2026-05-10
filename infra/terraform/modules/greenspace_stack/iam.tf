@@ -320,6 +320,11 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
       "ec2:DescribeTags",
       "ec2:DescribeNetworkInterfaces",
       "ec2:DescribeAvailabilityZones",
+      "ec2:CreateVpcPeeringConnection",
+      "ec2:AcceptVpcPeeringConnection",
+      "ec2:DeleteVpcPeeringConnection",
+      "ec2:ModifyVpcPeeringConnectionOptions",
+      "ec2:DescribeVpcPeeringConnections",
     ]
     resources = ["*"]
   }
