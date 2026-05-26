@@ -10,11 +10,13 @@ Wrapper for the Interhuman API WebSocket streaming endpoint that analyzes live v
 ## When to Use
 
 Use this skill when:
+
 - Analyzing live video streams from a camera or continuous feed
 - You need real-time analysis as video is being captured
 - Processing ongoing video input segment by segment
 
 Do NOT use this skill for:
+
 - Pre-recorded video files (use `interhuman-post-processing` instead)
 - One-time file uploads
 
@@ -27,7 +29,7 @@ Do NOT use this skill for:
 
 ## Authentication
 
-Before using this skill, you must obtain an access token using the `interhuman-authentication` skill with the `interhumanai.stream` scope. 
+Before using this skill, you must obtain an access token using the `interhuman-authentication` skill with the `interhumanai.stream` scope.
 
 **Important**: Browser WebSocket API cannot send custom headers. For browser-based applications, pass the token via the `protocols` parameter (see JavaScript example below). For Node.js/Python backends, use the `Authorization` header in connection options.
 
@@ -46,8 +48,11 @@ Before using this skill, you must obtain an access token using the `interhuman-a
 ```javascript
 const token = "YOUR_ACCESS_TOKEN";
 // Pass token via protocols parameter (Sec-WebSocket-Protocol header)
-const protocols = ['access_token', token];
-const socket = new WebSocket("wss://api.interhuman.ai/v0/stream/analyze", protocols);
+const protocols = ["access_token", token];
+const socket = new WebSocket(
+  "wss://api.interhuman.ai/v0/stream/analyze",
+  protocols,
+);
 
 socket.onopen = () => console.log("WebSocket connected");
 
@@ -65,22 +70,22 @@ socket.onclose = () => console.log("WebSocket closed");
 For Node.js environments using the `ws` library, you can use custom headers:
 
 ```javascript
-import WebSocket from 'ws';
+import WebSocket from "ws";
 
 const token = "YOUR_ACCESS_TOKEN";
 const socket = new WebSocket("wss://api.interhuman.ai/v0/stream/analyze", {
   headers: {
-    Authorization: `Bearer ${token}`
-  }
+    Authorization: `Bearer ${token}`,
+  },
 });
 
-socket.on('open', () => console.log("WebSocket connected"));
-socket.on('message', (data) => {
+socket.on("open", () => console.log("WebSocket connected"));
+socket.on("message", (data) => {
   const message = JSON.parse(data.toString());
   console.log("Server message:", message);
 });
-socket.on('error', (error) => console.error("WebSocket error:", error));
-socket.on('close', () => console.log("WebSocket closed"));
+socket.on("error", (error) => console.error("WebSocket error:", error));
+socket.on("close", () => console.log("WebSocket closed"));
 ```
 
 ### Connection Example: Python
@@ -118,7 +123,7 @@ Send binary video segments over the WebSocket connection. Each segment should be
 ```javascript
 async function startStreaming(socket, stream) {
   const recorder = new MediaRecorder(stream, {
-    mimeType: "video/webm;codecs=vp8,opus"
+    mimeType: "video/webm;codecs=vp8,opus",
   });
 
   recorder.ondataavailable = async (event) => {
@@ -187,6 +192,7 @@ Sent when analysis completes for a segment:
 ```
 
 Each signal in the `signals` array contains:
+
 - **type** (string): Signal type (`agreement`, `confidence`, `confusion`, `disagreement`, `disengagement`, `engagement`, `frustration`, `hesitation`, `interest`, `skepticism`, `stress`, `uncertainty`)
 - **start** (number): Start time in seconds relative to segment start
 - **end** (number): End time in seconds relative to segment start

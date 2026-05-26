@@ -10,6 +10,7 @@ Wrapper for the Interhuman API authentication endpoint that generates short-live
 ## When to Use
 
 Use this skill when:
+
 - You need to obtain an access token before calling Interhuman API endpoints
 - The user has API key credentials (key_id and key_secret) from the Interhuman dashboard
 - You need to authenticate for either upload or stream endpoints
@@ -74,13 +75,13 @@ print(response.json())
 const response = await fetch("https://api.interhuman.ai/v0/auth", {
   method: "POST",
   headers: {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   },
   body: JSON.stringify({
     key_id: "your_key_id",
     key_secret: "your_key_secret",
-    scopes: ["interhumanai.upload"]
-  })
+    scopes: ["interhumanai.upload"],
+  }),
 });
 
 const json = await response.json();

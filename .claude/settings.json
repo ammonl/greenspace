@@ -59,11 +59,12 @@
       "WebFetch(domain:claude.com)",
       "WebFetch(domain:interhuman.ai)",
       "WebFetch(domain:linear.app)",
-      "mcp__plugin_linear_linear__*",
       "mcp__linear__*",
       "mcp__claude_ai_Linear__*",
       "mcp__context7__*",
       "mcp__ide__*",
+      "mcp__plugin_linear_linear__*",
+      "mcp__pluginn_mcp_context7__*",
       "mcp__sequential-thinking__*",
       "Edit",
       "Read",
@@ -96,6 +97,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -E '\\.py$' | xargs -r uv run ruff format"
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -113,6 +125,5 @@
     "linear@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
-  "promptSuggestionEnabled": false,
-  "model": "opus"
+  "promptSuggestionEnabled": false
 }
