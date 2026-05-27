@@ -10,11 +10,13 @@ Wrapper for the Interhuman API upload endpoint that analyzes completed video fil
 ## When to Use
 
 Use this skill when:
+
 - Analyzing a pre-recorded video file (MP4, AVI, MOV, MKV, MPEG-TS, MPEG-2-TS, WebM)
 - The video file is already complete (not a live stream)
 - You need to get all detected signals for the entire video at once
 
 Do NOT use this skill for:
+
 - Live video streams (use `interhuman-stream` instead)
 - Real-time analysis of ongoing video feeds
 
@@ -85,9 +87,9 @@ formData.append("file", fs.createReadStream("path/to/video.mp4"));
 const response = await fetch("https://api.interhuman.ai/v0/upload/analyze", {
   method: "POST",
   headers: {
-    Authorization: `Bearer ${process.env.ACCESS_TOKEN}`
+    Authorization: `Bearer ${process.env.ACCESS_TOKEN}`,
   },
-  body: formData
+  body: formData,
 });
 
 const json = await response.json();
