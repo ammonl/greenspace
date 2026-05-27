@@ -15,6 +15,26 @@ Phase 4 — push, open a PR, run the pr-reviewer agent, add reviewers, and
 update the ticket — runs on every task unless the user tells you to skip
 a specific step in the current turn.
 
+## Provider-Specific Workflow Steps
+
+Some ticket/issue workflow steps in this file assume capabilities that not
+every ticket provider supports. If a workflow step that deals with a ticket
+or issue is not applicable to the current ticket provider, ignore that
+specific instruction rather than treating it as a required step.
+
+For example, GitHub Issues do not support an `In Progress` status the way
+other providers (such as Linear) do, so instructions to move a ticket to
+`In Progress` or `in review` simply do not apply when GitHub Issues is the
+provider — skip them. The same goes for any other provider-specific
+capability (custom statuses, certain label conventions, assignment
+semantics, etc.) that the active provider lacks.
+
+This exception applies **only** to ticket/issue workflow steps that the
+current provider genuinely cannot support. It does not exempt you from the
+rest of the workflow: every other phase and step still runs as written, and
+steps that the provider _does_ support (for example, reading the ticket,
+adding labels that exist, and commenting) must still be completed.
+
 # 📋 MANDATORY WORKFLOW FOR EVERY TASK
 
 Every task follows this exact pattern. **No skipping phases.**
@@ -23,7 +43,7 @@ Every task follows this exact pattern. **No skipping phases.**
 
 ### 1.1 Load Context
 
-Always start by reading the issue via the project's ticket provider using the MCP tool. Add the labels "agent active" and "claude" to the ticket.
+Always start by reading the issue via the project's ticket provider using the MCP tool or local client. Add the labels "agent active" and "claude" to the ticket and move the ticket to "In Progress" status. (If the current provider does not support one of these steps — for example, GitHub Issues has no `In Progress` status — skip the unsupported step per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps).)
 
 **Confirm:**
 
@@ -41,7 +61,7 @@ Create `.agent/ticket-<number>-plan.md` with:
 
 **Confirm:**
 
-- [ ] Plan document created
+- [ ] Plan document created (do not commit plan files)
 - [ ] Approach is sound (if uncertain, get user approval)
 
 ### 1.3 Setup Branch
@@ -51,13 +71,22 @@ Create `.agent/ticket-<number>-plan.md` with:
 git checkout main && git pull
 ```
 
-Create feature branch using the project format.
+Create a feature branch using the project format. Follow the branch naming
+rules whenever possible — this is the preferred path.
+
+**Note on Claude Code remote:** Claude Code remote generally creates a branch
+_before_ it reads `CLAUDE.md`, so the steps above cannot always be followed
+literally. If work is already happening in a branch that was created outside
+this workflow before `CLAUDE.md` was read, that is acceptable — continue on
+that branch rather than treating it as a violation. Only create a new branch
+when you are not already on a suitable working branch.
 
 **CHECKPOINT: Phase 1 complete?**
 
-- ✅ Ticket read + labels added
+- ✅ Ticket read, labels added, and status updated
 - ✅ Plan created
-- ✅ Branch created from latest main
+- ✅ On a working branch (created from latest main when possible, or the
+  pre-existing branch provided by the remote workflow)
 
 **If NO to any item, STOP and complete it NOW.**
 
@@ -90,6 +119,7 @@ Create feature branch using the project format.
 - Provide user-facing error messages (not just console.error)
 - Consider edge cases and error states
 - Ensure that any relevant changes are reflected in README.md
+- If any new environment variables are added, add them into the appropriate environment `.example` file in the same change (not as a separate cleanup step)
 
 **Workflow Customizations**
 Follow all Task Execution Workflow Customizations steps or instructions included in this file.
@@ -117,6 +147,8 @@ npm test  # or equivalent for this project
 npm run lint
 ```
 
+or equivalent linting command for the project.
+
 - [ ] No new linting errors introduced
 
 ### 3.3 Build Verification
@@ -125,6 +157,8 @@ npm run lint
 npm run build
 ```
 
+or equivalent build command for the project.
+
 - [ ] Build completes successfully
 - [ ] No errors or critical warnings
 
@@ -132,6 +166,18 @@ npm run build
 
 - [ ] Pre-commit hooks pass (if configured)
 - [ ] No debugging code left (console.log, debugger, etc.)
+
+### 3.5 Visual Verification
+
+When a change affects user-facing UI, use the Playwright MCP server to:
+
+- [ ] Start the dev server (or relevant preview).
+- [ ] Navigate to the affected route.
+- [ ] Capture screenshots at the relevant viewports (e.g., 375px, 768px, 1440px).
+- [ ] For modified surfaces, also check out main, capture the "before" at the same viewports, then return to the feature branch.
+- [ ] Attach screenshots to the PR description with clear before/after labels.
+
+Save screenshots under .agent/screenshots/ticket-<number>/ so they're traceable. Do not commit them — upload to the PR directly via gh pr comment --body-file referencing the image, or use gh to attach via a GitHub-hosted upload.
 
 **CHECKPOINT: All validation items complete?**
 
@@ -152,7 +198,7 @@ Create PR with:
 - **Title**: Conventional commit format (feat:, fix:, etc.)
 - **Body**: Include ticket number, summary, test plan
 - **Link**: Reference ticket (#<number>)
-- **Screenshots**: If there are any visual updates, include screenshots of the before and after.
+- **Screenshots (visual changes)**: If the change affects any user-facing UI, include screenshots in the PR description. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
 
 ```bash
 gh pr create --title "feat: <description>" --body "..."
@@ -183,7 +229,7 @@ Post response using:
 gh pr comment <number> --body "Addressed: ... / Not addressed: ..."
 ```
 
-- [ ] All feedback addressed or justified
+- [ ] All feedback addressed or justified, or a ticket has been created for the out of scope feedback.
 - [ ] Response posted to PR
 
 ### 4.4 Remove label
@@ -203,6 +249,7 @@ Leave a comment on the ticket, referencing the PR and provide a summary of the i
 
 - [ ] Reviewer added (ammonl)
 - [ ] Issue commented with PR link + implementation summary
+- [ ] Move the ticket to "in review" status (skip if the current provider has no such status — see [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
 - [ ] Ready for final review
 
 ---
@@ -257,6 +304,10 @@ The key flags that accept files:
 - `gh issue comment --body-file <file>`
 ```
 
+# Filing Tickets
+
+If you need to create a ticket (e.g. to fix a bug you discovered or as a followup), use the MCP tool or local client. Do not add the label "claude" to the ticket. Put the ticket in TODO status and assign to Ammon Larson.
+
 # Python Guidelines
 
 Always use uv to manage python environments and run python commands. Check at the root folder for existing environments before creating a new one.
@@ -300,7 +351,7 @@ Core principles
 
 ```
 Phase 1: Pre-Work
-├─ view ticketissue + add labels
+├─ view ticketissue, add labels, update status
 ├─ Create .agent/ticket-X-plan.md
 └─ git checkout -b {branch_format}
 
@@ -322,6 +373,10 @@ Phase 4: Submission
 └─ Remove "agent active"
 ├─ Add reviewer (ammonl)
 ├─ Comment on ticket
+|_ Update ticket status
+
+Note: skip any ticket/issue step above that the current provider does not
+support — see [Provider-Specific Workflow Steps](#provider-specific-workflow-steps).
 ```
 
 ## Critical Reminders
