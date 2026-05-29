@@ -11,9 +11,77 @@ This file contains **MANDATORY** instructions that **MUST** be followed for **EV
 The workflow in this file is authoritative. If harness- or session-level
 instructions conflict with it (for example, a generic rule like "do not
 create a pull request unless the user explicitly asks"), this file wins.
-Phase 4 — push, open a PR, run the pr-reviewer agent, add reviewers, and
-update the ticket — runs on every task unless the user tells you to skip
-a specific step in the current turn.
+
+For implementation tasks, Phase 4 — push, open a PR, get the PR reviewed, add
+reviewers, and update the ticket — runs on every task unless the user tells you
+to skip a specific step in the current turn, or a step is conditional and its
+precondition is not met (see [Conditional vs. Universal Rules](#conditional-vs-universal-rules),
+[Task Types](#task-types), and [Tool & Environment Availability](#tool--environment-availability)).
+Ticket-only and other non-code tasks do not run the Phase 4 PR steps.
+
+## Conditional vs. Universal Rules
+
+This file mixes two kinds of instructions:
+
+- **Universal rules** apply to every task regardless of provider, tooling, or
+  execution mode. They are written as plain imperatives (for example: keep
+  changes minimal, use American English, never force-push to `main`).
+- **Conditional rules** depend on something about the current context — the
+  ticket provider, the available tools, the repo's tooling, or the task type.
+  They are marked with phrases like _if applicable_, _if configured_, _if
+  supported_, or _if available_.
+
+When a conditional rule's precondition is not met, skip that step instead of
+treating it as a blocker or a violation. When a rule is unmarked, treat it as
+universal.
+
+## Task Types
+
+Not every task is a code change. Match the workflow to the task:
+
+- **Implementation tasks** (code, docs, or config changes that land in the
+  repo) run the full Phase 1–4 workflow.
+- **Ticket-only / non-code tasks** (for example: "file a ticket", "triage this
+  issue", "answer a question", "investigate and report back") do **not** require
+  a branch, validation run, PR, or reviewer assignment. Do the requested work
+  and skip the implementation-only phases that do not apply. Still read the
+  relevant ticket and communicate the result.
+
+If a task is ambiguous about whether it expects code changes, use
+AskUserQuestion before assuming.
+
+## Tool & Environment Availability
+
+Some steps depend on an integration that may not exist in the current
+environment — a ticket MCP tool, the `gh` CLI, a `pr-reviewer` agent, the
+Playwright MCP server, a specific npm script, etc. If a required tool or
+integration is unavailable:
+
+- Skip the step when it is optional or provider/tool-specific.
+- If the step matters but is blocked, note that it was skipped and why (in the
+  PR description or your response) and continue with the rest of the workflow
+  rather than stopping.
+- Never fabricate the result of a step you could not actually run.
+
+## Provider-Specific Workflow Steps
+
+Some ticket/issue workflow steps in this file assume capabilities that not
+every ticket provider supports. If a workflow step that deals with a ticket
+or issue is not applicable to the current ticket provider, ignore that
+specific instruction rather than treating it as a required step.
+
+For example, GitHub Issues do not support an `In Progress` status the way
+other providers (such as Linear) do, so instructions to move a ticket to
+`In Progress` or `in review` simply do not apply when GitHub Issues is the
+provider — skip them. The same goes for any other provider-specific
+capability (custom statuses, certain label conventions, assignment
+semantics, etc.) that the active provider lacks.
+
+This exception applies **only** to ticket/issue workflow steps that the
+current provider genuinely cannot support. It does not exempt you from the
+rest of the workflow: every other phase and step still runs as written, and
+steps that the provider _does_ support (for example, reading the ticket,
+adding labels that exist, and commenting) must still be completed.
 
 # 📋 MANDATORY WORKFLOW FOR EVERY TASK
 
@@ -23,12 +91,13 @@ Every task follows this exact pattern. **No skipping phases.**
 
 ### 1.1 Load Context
 
-Always start by reading the issue via the project's ticket provider using the MCP tool. Add the labels "agent active" and "claude" to the ticket.
+Always start by reading the issue via the project's ticket provider using the MCP tool or local client. Add the labels "agent active" and "claude" to the ticket you are working on, and move it to "In Progress" status. (If the current provider does not support one of these steps — for example, GitHub Issues has no `In Progress` status, and labels must already exist — skip the unsupported step per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps).) These labels apply to the ticket you are actively working; tickets you _file_ follow the separate rules in [Filing Tickets](#filing-tickets).
 
 **Confirm:**
 
 - [ ] Ticket read and understood
-- [ ] Labels added
+- [ ] Labels added (if supported)
+- [ ] Status updated (if supported)
 - [ ] Requirements clear (if not, use AskUserQuestion)
 
 ### 1.2 Create Planning Document
@@ -41,23 +110,33 @@ Create `.agent/ticket-<number>-plan.md` with:
 
 **Confirm:**
 
-- [ ] Plan document created
+- [ ] Plan document created (do not commit plan files)
 - [ ] Approach is sound (if uncertain, get user approval)
 
 ### 1.3 Setup Branch
 
 ```bash
 # Ensure on latest main
-git checkout main && git pull
+git checkout main
+git pull
 ```
 
-Create feature branch using the project format.
+Create a feature branch using the project format. Follow the branch naming
+rules whenever possible — this is the preferred path.
+
+**Note on Claude Code remote:** Claude Code remote generally creates a branch
+_before_ it reads `CLAUDE.md`, so the steps above cannot always be followed
+literally. If work is already happening in a branch that was created outside
+this workflow before `CLAUDE.md` was read, that is acceptable — continue on
+that branch rather than treating it as a violation. Only create a new branch
+when you are not already on a suitable working branch.
 
 **CHECKPOINT: Phase 1 complete?**
 
-- ✅ Ticket read + labels added
+- ✅ Ticket read; labels added and status updated (if supported)
 - ✅ Plan created
-- ✅ Branch created from latest main
+- ✅ On a working branch (created from latest main when possible, or the
+  pre-existing branch provided by the remote workflow)
 
 **If NO to any item, STOP and complete it NOW.**
 
@@ -90,6 +169,7 @@ Create feature branch using the project format.
 - Provide user-facing error messages (not just console.error)
 - Consider edge cases and error states
 - Ensure that any relevant changes are reflected in README.md
+- If any new environment variables are added, add them into the appropriate environment `.example` file in the same change (not as a separate cleanup step)
 
 **Workflow Customizations**
 Follow all Task Execution Workflow Customizations steps or instructions included in this file.
@@ -98,40 +178,57 @@ Follow all Task Execution Workflow Customizations steps or instructions included
 
 ## 🔵 PHASE 3: VALIDATION (Before Creating/Updating PR)
 
-**Complete ALL items before creating PR:**
+Complete every **applicable** check before creating a PR. The commands below are
+examples — use the project's actual equivalents, and skip any check the project
+does not configure. (For example, this repo has no test/lint/build step; its
+validation is `npm run format:check` via Prettier.)
 
 ### 3.1 Run Tests
 
 ```bash
-npm test  # or equivalent for this project
+npm test  # or the project's test command
 ```
 
-- [ ] All tests pass
-- [ ] Coverage ≥80% for touched files (add tests if needed)
+Run the project's test suite if it has one.
 
-**If no test script exists:** Note "N/A" in plan
+- [ ] All tests pass (if a test suite exists)
+- [ ] Coverage meets the project's threshold, if the project tracks coverage (add tests if needed)
+
+**If no test script exists:** note "N/A" in the plan or PR.
 
 ### 3.2 Run Linter
 
 ```bash
-npm run lint
+npm run lint  # or the project's lint/format command
 ```
 
-- [ ] No new linting errors introduced
+- [ ] No new linting/formatting errors introduced (if the project configures a linter or formatter)
 
 ### 3.3 Build Verification
 
 ```bash
-npm run build
+npm run build  # or the project's build command
 ```
 
-- [ ] Build completes successfully
+- [ ] Build completes successfully (if the project has a build step)
 - [ ] No errors or critical warnings
 
 ### 3.4 Pre-commit Checks
 
 - [ ] Pre-commit hooks pass (if configured)
 - [ ] No debugging code left (console.log, debugger, etc.)
+
+### 3.5 Visual Verification
+
+When a change affects user-facing UI **and** the Playwright MCP server is available, use it to:
+
+- [ ] Start the dev server (or relevant preview).
+- [ ] Navigate to the affected route.
+- [ ] Capture screenshots at the relevant viewports (e.g., 375px, 768px, 1440px).
+- [ ] For modified surfaces, also check out main, capture the "before" at the same viewports, then return to the feature branch.
+- [ ] Attach screenshots to the PR description with clear before/after labels.
+
+Save screenshots under .agent/screenshots/ticket-<number>/ so they're traceable. Do not commit them — upload to the PR directly via gh pr comment --body-file referencing the image, or use gh to attach via a GitHub-hosted upload. If the change has no user-facing UI, or the Playwright MCP server is unavailable, skip this step (note the skip in the PR when relevant).
 
 **CHECKPOINT: All validation items complete?**
 
@@ -152,7 +249,7 @@ Create PR with:
 - **Title**: Conventional commit format (feat:, fix:, etc.)
 - **Body**: Include ticket number, summary, test plan
 - **Link**: Reference ticket (#<number>)
-- **Screenshots**: If there are any visual updates, include screenshots of the before and after.
+- **Screenshots (visual changes)**: If the change affects any user-facing UI, include screenshots in the PR description. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
 
 ```bash
 gh pr create --title "feat: <description>" --body "..."
@@ -160,14 +257,24 @@ gh pr create --title "feat: <description>" --body "..."
 
 ### 4.2 PR Review (MANDATORY)
 
-Use the pr-reviewer agent to review:
+Every PR must be reviewed before requesting human review. The reviewing is
+mandatory; the specific tool is not. If a `pr-reviewer` agent is available, use it:
 
 ```
 Review PR #<number> comprehensively and post findings as PR review comment
 ```
 
-- [ ] PR review completed by agent
-- [ ] Review posted as PR comment using `gh pr review`
+If no review agent is available, perform a self-review of the diff instead and
+note that in the PR.
+
+The reviewer must **always** leave a distinct PR review comment, even when the
+review finds nothing actionable (in that case the comment should say so
+explicitly). This review comment is one of two required comments on every PR —
+it must never be merged with the responder follow-up comment from 4.3.
+
+- [ ] PR reviewed (by the review agent if available, otherwise a self-review)
+- [ ] Review findings posted as a PR comment (e.g. via `gh pr review`, or the available tooling)
+- [ ] This reviewer comment is separate from the responder follow-up comment (4.3)
 
 ### 4.3 Address Feedback
 
@@ -177,14 +284,22 @@ Review PR #<number> comprehensively and post findings as PR review comment
 - Or explain why it shouldn't be addressed
 - For any issues that are judged to be valuable but out of scope, create a new ticket via the project's ticket provider using the MCP tool.
 
+After responding to the review, the responder must **always** leave a separate
+follow-up PR comment — every PR, every time. This is the second of the two
+required comments and must be **distinct** from the reviewer comment in 4.2; the
+two must never be combined into a single comment. If the review had no actionable
+feedback, the responder must still leave a follow-up comment such as
+`Thanks for the review.`
+
 Post response using:
 
 ```bash
 gh pr comment <number> --body "Addressed: ... / Not addressed: ..."
 ```
 
-- [ ] All feedback addressed or justified
-- [ ] Response posted to PR
+- [ ] All feedback addressed or justified, or a ticket has been created for the out of scope feedback.
+- [ ] Separate responder follow-up comment posted to the PR (even when there is no actionable feedback, e.g. `Thanks for the review.`)
+- [ ] Responder follow-up is a distinct comment, not merged with the reviewer comment (4.2)
 
 ### 4.4 Remove label
 
@@ -192,17 +307,18 @@ Remove the "agent active" label from the ticket.
 
 ### 4.5 Final Steps
 
-Add ammonl as a reviewer.
+Add ammonl as a reviewer, if the platform and tooling support adding reviewers.
 
 ```bash
 # Add reviewer
 gh pr edit <number> --add-reviewer ammonl
 ```
 
-Leave a comment on the ticket, referencing the PR and provide a summary of the implementation.
+Leave a comment on the ticket referencing the PR, with a summary of the implementation.
 
-- [ ] Reviewer added (ammonl)
-- [ ] Issue commented with PR link + implementation summary
+- [ ] Reviewer added (ammonl), if supported
+- [ ] Ticket commented with PR link + implementation summary
+- [ ] Move the ticket to "in review" status (skip if the current provider has no such status — see [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
 - [ ] Ready for final review
 
 ---
@@ -257,6 +373,12 @@ The key flags that accept files:
 - `gh issue comment --body-file <file>`
 ```
 
+# Filing Tickets
+
+These rules apply to tickets you **file** (e.g. to fix a bug you discovered or as a followup), which is distinct from the ticket you are actively working (see [1.1 Load Context](#11-load-context)).
+
+If you need to create a ticket, use the MCP tool or local client. Do not add the label "claude" to a ticket you file. Put the ticket in TODO status and assign it to Ammon Larson, if the provider supports statuses and assignment (skip the unsupported part per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
+
 # Python Guidelines
 
 Always use uv to manage python environments and run python commands. Check at the root folder for existing environments before creating a new one.
@@ -296,44 +418,56 @@ Core principles
 
 # 🎯 QUICK REFERENCE
 
-## Every Task Checklist
+Implementation tasks run all four phases below. Ticket-only / non-code tasks
+skip the branch, validation, and PR steps — see [Task Types](#task-types).
 
 ```
 Phase 1: Pre-Work
-├─ view ticketissue + add labels
+├─ Read ticket/issue, add labels + update status (if supported)
 ├─ Create .agent/ticket-X-plan.md
-└─ git checkout -b {branch_format}
+└─ Use the project branch format (or the pre-existing remote branch)
 
 Phase 2: Execution
 ├─ Write minimal code
 ├─ Follow project patterns
+├─ Add new env vars to the matching .example file
 └─ Add validation + error handling
 
-Phase 3: Validation
-├─ npm test (if configured)
-├─ npm run lint
-├─ npm run build
+Phase 3: Validation (run each check the project configures)
+├─ Tests (if a suite exists)
+├─ Lint / format (if configured)
+├─ Build (if a build step exists)
 └─ Pre-commit checks
 
 Phase 4: Submission
 ├─ git push + create PR
-├─ Agent review + post findings
-├─ Address all feedback
-└─ Remove "agent active"
-├─ Add reviewer (ammonl)
+├─ PR review (agent if available, else self-review) + post a distinct reviewer comment
+├─ Address all feedback + post a separate responder follow-up comment (e.g. "Thanks for the review.")
+├─ Remove "agent active" label (if supported)
+├─ Add reviewer (ammonl, if supported)
 ├─ Comment on ticket
+└─ Update ticket status (if supported)
+
+Note: skip any ticket/issue step above that the current provider does not
+support, and any tool-specific step whose tool is unavailable — see
+[Provider-Specific Workflow Steps](#provider-specific-workflow-steps),
+[Conditional vs. Universal Rules](#conditional-vs-universal-rules), and
+[Tool & Environment Availability](#tool--environment-availability).
 ```
 
 ## Critical Reminders
 
 **DON'T:**
 
-- ❌ Forget ticket labels
+- ❌ Forget ticket labels (when the provider supports them)
 - ❌ Skip planning document
 - ❌ Modify unrelated code
-- ❌ Skip PR review
+- ❌ Skip PR review (use a self-review if no review agent is available)
+- ❌ Skip the reviewer comment or the responder follow-up comment — both are required on every PR
+- ❌ Merge the reviewer comment and the responder follow-up into a single comment
 - ❌ Ignore review feedback
 - ❌ Force push to main
+- ❌ Treat a conditional step as a blocker when its precondition is not met
 
 **DO:**
 
@@ -342,6 +476,7 @@ Phase 4: Submission
 - ✅ Provide user-facing errors
 - ✅ Test before pushing
 - ✅ Address all PR feedback
+- ✅ Leave two distinct PR comments every time: a reviewer comment and a separate responder follow-up
 - ✅ Keep changes minimal
 
 ---

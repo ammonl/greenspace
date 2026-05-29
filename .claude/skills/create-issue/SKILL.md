@@ -8,6 +8,7 @@ Create an issue ticket based on the user's description. Follow these steps:
 ## 1. Gather Information
 
 If the user hasn't provided enough detail, ask for:
+
 - **Title**: Short, action-oriented summary (e.g., "Fix login timeout on mobile")
 - **Type**: Bug, Feature, Task, or Chore
 - **Description**: What is the problem or goal?
@@ -42,6 +43,7 @@ Structure the issue body using this template:
 ```
 
 For bugs, include:
+
 - Steps to reproduce
 - Expected vs actual behavior
 - Environment/version info if relevant
@@ -50,12 +52,14 @@ For bugs, include:
 
 **For Linear** (preferred when available):
 Use `mcp__claude_ai_Linear__save_issue` with:
+
 - `title`: The issue title
 - `description`: Formatted markdown body
 - `priority`: Map user priority to Linear values (urgent=1, high=2, medium=3, low=4)
 - `teamId`: Detect from `mcp__claude_ai_Linear__list_teams` if not obvious
 
 **For GitHub**:
+
 ```bash
 printf '%s' "<body>" > /tmp/issue-body.txt
 gh issue create --title "<title>" --body-file /tmp/issue-body.txt --label "<type>"
@@ -66,6 +70,7 @@ Do NOT add a "claude" label when creating issues. That label is reserved for whe
 ## 5. Confirm and Share
 
 After creating, output:
+
 - The issue title and number/ID
 - A direct link to the issue
 - One-line summary of what was created
