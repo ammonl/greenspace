@@ -474,9 +474,11 @@ resource "aws_cloudwatch_dashboard" "main" {
 # ---------- State migrations ----------
 #
 # These resources gained `count` to make alarms/dashboard optional per environment.
-# In prod (where var.enable_alarms and var.enable_dashboard remain true), the
-# `moved` blocks rename existing state entries to their indexed addresses so the
-# plan stays a no-op rather than a destroy/recreate.
+# The `moved` blocks rename any pre-existing state entries to their indexed
+# addresses so a toggle flip plans as a clean create/destroy of the indexed
+# resource rather than a rename churn. Alarms are now seasonally gated by
+# var.enable_alarms (off out of season in prod); the dashboard by
+# var.enable_dashboard.
 
 moved {
   from = aws_sns_topic.alarms

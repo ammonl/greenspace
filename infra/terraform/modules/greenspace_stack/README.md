@@ -13,7 +13,7 @@ the staging and production environment stacks.
 | `database.tf`    | RDS PostgreSQL instance, subnet group, Secrets Manager     |
 | `ses.tf`         | SES domain identity, DKIM, configuration set               |
 | `dns.tf`         | Route 53 hosted zone, SES verification/DKIM DNS records    |
-| `monitoring.tf`  | CloudWatch log groups, KMS encryption key                  |
+| `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated) |
 
 ## Shared-RDS connectivity
 
@@ -33,6 +33,25 @@ shared_db_vpc_cidr = "172.31.0.0/16" # CIDR of that VPC
 The shared-db side must independently add its accepter-side route, RDS SG
 ingress from the Greenspace VPC CIDR, and
 `accepter.allow_remote_vpc_dns_resolution = true` for traffic to flow.
+
+## Monitoring & seasonal alarms
+
+CloudWatch log groups and VPC flow logs are always provisioned. The SNS alarm
+topic, its email subscription, and all CloudWatch metric alarms are gated by
+`enable_alarms`; the operational dashboard is gated by `enable_dashboard`.
+
+Alarms are **seasonal**: the platform only runs an active registration window
+for part of the year, so alarms are turned off out of season to avoid noise and
+cost. Both staging and prod currently set `enable_alarms = false`. To re-enable
+alarms for an active season, flip the single flag in the environment config
+(`environments/<env>/main.tf`) to `true` — no per-alarm edits are required:
+
+```hcl
+enable_alarms = true
+```
+
+`alarm_email` can stay set while alarms are disabled; it is ignored until
+`enable_alarms` is `true`.
 
 ## Least-privilege IAM
 
@@ -77,6 +96,8 @@ are managed by Terraform. After the first `terraform apply`:
 | `db_instance_class`           | RDS instance class                                   |
 | `shared_db_vpc_id`            | Shared-RDS VPC ID; null disables peering             |
 | `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |
+| `enable_alarms`               | Seasonal toggle for SNS topic + all CloudWatch alarms |
+| `enable_dashboard`            | Toggle for the CloudWatch operational dashboard      |
 
 See `variables.tf` for the full list with descriptions and defaults.
 

@@ -274,7 +274,7 @@ variable "alarm_rds_connections_threshold" {
 }
 
 variable "enable_alarms" {
-  description = "Whether to provision the SNS alarm topic, email subscription, and all CloudWatch metric alarms."
+  description = "Seasonal toggle: whether to provision the SNS alarm topic, email subscription, and all CloudWatch metric alarms. Set false to disable alarms out of season; flip to true to re-enable for an active season."
   type        = bool
   default     = true
 }
