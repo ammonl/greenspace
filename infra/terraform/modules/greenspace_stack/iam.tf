@@ -574,10 +574,6 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
     ]
   }
 
-  # Read-only RDS access retained for plan-refresh safety. The dedicated
-  # per-environment RDS stack was decommissioned after the shared-db cutover;
-  # the shared instance is owned and managed by `ammonlarson/infra-shared-db`,
-  # so this role no longer needs RDS create/modify/delete permissions.
   statement {
     sid    = "RDSRead"
     effect = "Allow"
@@ -592,6 +588,56 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
       "rds:DescribeOrderableDBInstanceOptions",
     ]
     resources = ["*"]
+  }
+
+  statement {
+    sid    = "RDSManage"
+    effect = "Allow"
+    actions = [
+      "rds:CreateDBInstance",
+      "rds:DeleteDBInstance",
+      "rds:ModifyDBInstance",
+      "rds:RebootDBInstance",
+      "rds:CreateDBSnapshot",
+      "rds:DeleteDBSnapshot",
+      "rds:AddTagsToResource",
+      "rds:RemoveTagsFromResource",
+    ]
+    resources = [
+      "arn:aws:rds:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:db:${local.naming_prefix}-*",
+      "arn:aws:rds:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:snapshot:${local.naming_prefix}-*",
+    ]
+  }
+
+  statement {
+    sid    = "RDSSubnetGroups"
+    effect = "Allow"
+    actions = [
+      "rds:CreateDBSubnetGroup",
+      "rds:DeleteDBSubnetGroup",
+      "rds:ModifyDBSubnetGroup",
+      "rds:AddTagsToResource",
+      "rds:RemoveTagsFromResource",
+    ]
+    resources = [
+      "arn:aws:rds:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:subgrp:${local.naming_prefix}-*",
+    ]
+  }
+
+  statement {
+    sid    = "RDSParameterGroups"
+    effect = "Allow"
+    actions = [
+      "rds:CreateDBParameterGroup",
+      "rds:DeleteDBParameterGroup",
+      "rds:ModifyDBParameterGroup",
+      "rds:ResetDBParameterGroup",
+      "rds:AddTagsToResource",
+      "rds:RemoveTagsFromResource",
+    ]
+    resources = [
+      "arn:aws:rds:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:pg:${local.naming_prefix}-*",
+    ]
   }
 
   statement {

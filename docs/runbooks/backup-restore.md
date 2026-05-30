@@ -42,20 +42,31 @@ performed by the shared-db owner, but the Greenspace-specific steps are:
    validated host, or by promoting the restored instance. For production, always
    get explicit approval before proceeding.
 
-## Decommission retention (one-time, completed in #347)
+## Decommissioning the dedicated RDS (one-time, #347)
 
-When the dedicated RDS instances were torn down, the following retention steps
-applied:
+The dedicated per-environment RDS stack is removed from Terraform in #347. The
+teardown applies (destroys) carry two operational caveats:
 
-- **Staging:** no final snapshot retained — the dedicated staging DB was QA
-  scratch space and its data was already migrated.
-- **Production:** before destroy, disable `deletion_protection` and take a
-  **manual final snapshot** of `greenspace-prod-2026-postgres` so the
-  pre-cutover prod data remains recoverable independently of the shared
-  instance. The data itself was already migrated to and validated on the shared
-  RDS (#340).
+- **Final snapshot (prod):** the prod instance's retained state keeps
+  `skip_final_snapshot = false` and `final_snapshot_identifier =
+  greenspace-prod-2026-final`, so `terraform destroy` takes a final snapshot
+  **automatically** as it deletes `greenspace-prod-2026-postgres`. Taking an
+  additional manual snapshot beforehand is optional belt-and-suspenders; the
+  data was already migrated to and validated on the shared RDS (#340). Staging
+  keeps `skip_final_snapshot = true`, so no snapshot is retained there (QA
+  scratch space).
+- **Deletion protection (prod):** the prod instance has `deletion_protection =
+  true` in state. Because the resource is removed from config, Terraform cannot
+  flip it off first — disable it out-of-band (AWS Console or
+  `aws rds modify-db-instance --no-deletion-protection`) **before** approving
+  the prod apply, or the destroy aborts.
 
-These steps are historical; the dedicated instances no longer exist.
+The CI Terraform role keeps its `rds:Delete*` / `rds:CreateDBSnapshot` /
+`DeleteDBSubnetGroup` / `DeleteDBParameterGroup` permissions through this apply
+so the destroy (and the automatic final snapshot) succeed. Trimming those now-unused
+permissions is deliberately deferred to a follow-up apply (tracked separately) to
+avoid a self-modifying-policy race where the role removes its own delete
+permission mid-apply.
 
 ## References
 
