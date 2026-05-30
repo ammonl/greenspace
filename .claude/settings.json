@@ -73,6 +73,11 @@
       "Read(//tmp/**)",
       "Write(//tmp/**)"
     ],
+    "deny": [
+      "Bash(mkdir -p /Users/ammonl/.claude/agent-memory/pr-reviewer)",
+      "Write(//Users/ammonl/.claude/agent-memory/**)",
+      "Edit(//Users/ammonl/.claude/agent-memory/**)"
+    ],
     "defaultMode": "acceptEdits"
   },
   "hooks": {
