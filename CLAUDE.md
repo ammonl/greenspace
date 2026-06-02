@@ -272,6 +272,21 @@ Create PR with:
 gh pr create --title "feat: <description>" --body "..."
 ```
 
+**Keep PR metadata current as the branch evolves.** The PR title and description
+must always describe the code currently in the branch, not just the original PR
+contents. Whenever a later commit materially changes the PR — its scope,
+implementation approach, user-facing impact, or test plan — update the PR title
+and/or description in the same turn so they stay accurate. Use `gh pr edit` to
+apply the update:
+
+```bash
+gh pr edit <number> --title "feat: <updated description>"
+gh pr edit <number> --body-file /tmp/pr-body.txt
+```
+
+This applies throughout the life of the PR, including while watching it (4.6),
+not only at initial creation.
+
 ### 4.2 PR Review (MANDATORY)
 
 Every PR must be reviewed before requesting human review. The reviewing is
@@ -356,6 +371,9 @@ incoming CI / review / comment event:
 - **Review comment:** if the fix is unambiguous and small, make it; if it's
   ambiguous or architecturally significant, ask the user first
   (via AskUserQuestion); if no action is needed, skip silently.
+- **Scope change:** whenever a commit you push while watching materially changes
+  what the PR contains, update the PR title and/or description with `gh pr edit`
+  so they still match the branch (see 4.1).
 - Never poll with `sleep` or repeated status checks — events wake the session.
 - Stop watching the moment the user asks; unsubscribe and push no further
   changes to that PR.
@@ -485,6 +503,7 @@ Phase 4: Submission
 ├─ git push + create PR
 ├─ PR review (agent if available, else self-review) + post a distinct reviewer comment
 ├─ Address all feedback + post a separate responder follow-up comment (e.g. "Thanks for the review.")
+├─ Keep PR title/description current with `gh pr edit` when later commits change scope
 ├─ Remove "agent active" label (if supported)
 ├─ Add reviewer (ammonl, if supported)
 ├─ Comment on ticket
