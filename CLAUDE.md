@@ -437,7 +437,7 @@ The key flags that accept files:
 
 These rules apply to tickets you **file** (e.g. to fix a bug you discovered or as a followup), which is distinct from the ticket you are actively working (see [1.1 Load Context](#11-load-context)).
 
-If you need to create a ticket, use the MCP tool or local client. Do not add the label "claude" to a ticket you file. Put the ticket in TODO status and assign it to Ammon Larson, if the provider supports statuses and assignment (skip the unsupported part per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
+If you need to create a ticket, use the MCP tool or local client. Always add the target repo name to each ticket you file (for example: `interhumanai/interhuman-api`), if the provider supports labels. Never add the label "claude" to a ticket you file. Put the ticket in TODO status and assign it to Ammon Larson, if the provider supports statuses and assignment (skip the unsupported part per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
 
 # Python Guidelines
 

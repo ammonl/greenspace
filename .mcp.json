@@ -8,11 +8,6 @@
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
     },
-    "makerkit": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["tooling/mcp-server/build/index.js"]
-    },
     "stripe": {
       "type": "http",
       "url": "https://mcp.stripe.com/"
