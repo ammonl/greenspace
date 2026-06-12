@@ -348,7 +348,7 @@ gh pr edit <number> --add-reviewer alice
 
 Leave a comment on the ticket referencing the PR, with a summary of the implementation.
 
-- [ ] Reviewer added (designed assignee(s)), if supported
+- [ ] Reviewer added (designated assignee(s)), if supported
 - [ ] Ticket commented with PR link + implementation summary
 - [ ] Move the ticket to "in review" status (skip if the current provider has no such status — see [Provider-Specific Workflow Steps](#provider-specific-workflow-steps)).
 - [ ] Ready for final review
@@ -437,7 +437,7 @@ The key flags that accept files:
 
 These rules apply to tickets you **file** (e.g. to fix a bug you discovered or as a followup), which is distinct from the ticket you are actively working (see [1.1 Load Context](#11-load-context)).
 
-If you need to create a ticket, use the MCP tool or local client. Always add the target repo name to each ticket you file (for example: `interhumanai/interhuman-api`), if the provider supports labels. Never add the label "claude" to a ticket you file. Put the ticket in `Triage` status, if the provider supports statuses. If a designated (s)) exists for the project exists, assign it to them. Skip any unsupported behaviors per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps).
+If you need to create a ticket, use the MCP tool or local client. Always add the target repo name to each ticket you file (for example: `interhumanai/interhuman-api`), if the provider supports labels. Never add the label "claude" to a ticket you file. Put the ticket in `Triage` status, if the provider supports statuses. If a designated assignee(s) exists for the project exists, assign it to them. Skip any unsupported behaviors per [Provider-Specific Workflow Steps](#provider-specific-workflow-steps).
 
 # Python Guidelines
 
