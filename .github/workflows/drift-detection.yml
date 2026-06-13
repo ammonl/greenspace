@@ -138,10 +138,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          aws iam get-role-policy \
-            --role-name ${{ matrix.role_name }} \
-            --policy-name terraform-resources-bootstrap \
-            --output json > policy.json
+
+          # Retry transient AWS API/network errors before declaring the policy
+          # unreadable. A single connect timeout to the IAM endpoint should not
+          # raise a security-flavored alert; only a sustained failure should.
+          attempt=1
+          max_attempts=4
+          delay=5
+          while true; do
+            if aws iam get-role-policy \
+              --role-name ${{ matrix.role_name }} \
+              --policy-name terraform-resources-bootstrap \
+              --cli-connect-timeout 10 \
+              --cli-read-timeout 30 \
+              --output json > policy.json; then
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::get-role-policy failed after $max_attempts attempts."
+              exit 1
+            fi
+            echo "Attempt $attempt failed; retrying in ${delay}s..."
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+
           jq '.PolicyDocument' policy.json > policy-document.json
 
       - name: Validate bootstrap policy shape
