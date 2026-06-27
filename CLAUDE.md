@@ -374,12 +374,22 @@ incoming CI / review / comment event:
 - **Scope change:** whenever a commit you push while watching materially changes
   what the PR contains, update the PR title and/or description with `gh pr edit`
   so they still match the branch (see 4.1).
+- **`main` advanced:** when another change lands on `main` while you are watching
+  the PR, attempt to rebase the PR branch onto the latest `main`. If the rebase
+  cannot be completed cleanly because of conflicts, merge `main` into the PR
+  branch where needed instead of abandoning the update. Resolve conflicts so that
+  both sides' intent is preserved — keep the intentions behind the changes
+  already in the PR branch and the intentions behind the newer changes that
+  landed on `main`. Only when there is a true either/or conflict where one side
+  must win, prefer the PR branch being watched. After resolving, report a
+  concrete list of the files or conflicts that required manual resolution.
 - Never poll with `sleep` or repeated status checks — events wake the session.
 - Stop watching the moment the user asks; unsubscribe and push no further
   changes to that PR.
 
 - [ ] Subscribed to PR activity (if supported)
 - [ ] Initial CI status + unresolved review comments checked and addressed
+- [ ] When `main` advances: rebased onto `main` (merged on conflict, preserving both sides' intent, preferring the PR branch on a true either/or conflict) and reported any files needing manual resolution
 
 ---
 
@@ -452,6 +462,7 @@ Core principles
 - Default to a `src/` layout for packages (e.g., `src/<package_name>/...`) and keep import paths clean.
 - Keep configuration, documentation, and tooling files at the repo root.
 - Put tests in `tests/` and write tests that are fast, deterministic, and isolated.
+- Do not add tests for non-production repo surfaces. The no-tests rule applies at least to docs, infrastructure, scripts, dev tools, and repo-maintenance-only helpers that exist solely to support these. Check AGENTS.md for any additional repo-specific instructions about files and directories to exclude.
 - Organize code by feature/domain rather than by “layers” unless the project clearly benefits.
   Environment and dependencies
 - Always assume an isolated virtual environment.
@@ -508,7 +519,10 @@ Phase 4: Submission
 ├─ Add reviewer (designated assignee(s), if supported)
 ├─ Comment on ticket
 ├─ Update ticket status (if supported)
-└─ Subscribe to PR activity + watch CI/reviews until merged (if supported)
+├─ Subscribe to PR activity + watch CI/reviews until merged (if supported)
+└─ When main advances while watching: rebase onto main (merge on conflict),
+   preserve both sides' intent, prefer the PR branch on a true either/or
+   conflict, and report files that needed manual resolution
 
 Note: skip any ticket/issue step above that the current provider does not
 support, and any tool-specific step whose tool is unavailable — see
