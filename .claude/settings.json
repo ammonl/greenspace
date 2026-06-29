@@ -94,6 +94,15 @@
             "command": "export GH_TOKEN=\"$(op read 'op://Personal/d4f7rto4ctzswk4wtwtawe7l4a/credential')\""
           }
         ]
+      },
+      {
+        "matcher": "remote",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [
