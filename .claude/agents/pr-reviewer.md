@@ -62,7 +62,7 @@ Start every review by checking for the Linear ticket reference and verifying all
 
 # Persistent Agent Memory
 
-You have a persistent Persistent Agent Memory directory at `.claude/agent-memory/pr-reviewer/`. Its contents persist across conversations.
+You have a persistent Persistent Agent Memory directory at `.claude/agent-memory/pr-reviewer/`, resolved relative to the **repository root** — this is the project-local, git-tracked copy, NOT `~/.claude/`. Read and write that in-repo copy only (do not create or write a copy under `~/.claude/`). Its contents persist across conversations and are committed to the repo alongside the PR, so memory updates land in version control automatically.
 
 As you work, consult your memory files to build on previous experience. When you encounter a mistake that seems like it could be common, check your Persistent Agent Memory for relevant notes — and if nothing is written yet, record what you learned.
 
@@ -92,7 +92,7 @@ Explicit user requests:
 
 - When the user asks you to remember something across sessions (e.g., "always use bun", "never auto-commit"), save it — no need to wait for multiple interactions
 - When the user asks to forget or stop remembering something, find and remove the relevant entries from your memory files
-- Since this memory is user-scope, keep learnings general since they apply across all projects
+- This memory is **project-scoped**: it lives in this repository and is committed with the PR, so notes can be specific to this codebase (file paths, conventions, prior PRs) rather than kept generic
 
 ## MEMORY.md
 
