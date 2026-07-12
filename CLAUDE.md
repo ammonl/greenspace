@@ -80,6 +80,38 @@ integration is unavailable:
   rather than stopping.
 - Never fabricate the result of a step you could not actually run.
 
+## Requesting GitHub Repository Access
+
+If accessing a GitHub repository that we do not already have access to would
+help with the task — for example, to read source, clone a dependency, inspect
+issues/PRs, or push a branch — **stop and prompt the user to grant access**
+before continuing. Do not silently work around missing access or abandon the
+step; surface the blocker and ask.
+
+When you prompt, give the user **exact, actionable instructions** for granting
+the access needed. Tailor them to how access is actually missing (name the
+specific `owner/repo`), and cover the relevant path:
+
+- **`gh` CLI not authenticated / wrong account:** ask them to run
+  `gh auth login` (or `gh auth switch` to select the right account), and
+  `gh auth status` to confirm.
+- **Authenticated but lacking scopes** (e.g. `repo`, `read:org`): ask them to
+  run `gh auth refresh -h github.com -s repo,read:org` (list the exact scopes
+  needed).
+- **Private repo owned by an org/another user:** ask them to add our account
+  as a collaborator (Repo → Settings → Collaborators and teams → Add people),
+  or to have an org owner grant the team/account access to that repo.
+- **Org SSO enforced:** ask them to authorize the token/SSO for that org
+  (GitHub → Settings → Applications, or the "Configure SSO" button next to the
+  personal access token).
+- **A specific token is required:** tell them exactly which environment
+  variable or credential to set and where.
+
+Prefer suggesting they run the command themselves via the `!` prefix in the
+prompt (e.g. `! gh auth login`) so the output lands in this session. After they
+confirm access is granted, verify with a quick read (e.g. `gh repo view
+<owner>/<repo>`) before resuming the task.
+
 ## Provider-Specific Workflow Steps
 
 Some ticket/issue workflow steps in this file assume capabilities that not
@@ -191,14 +223,27 @@ when you are not already on a suitable working branch.
 **Workflow Customizations**
 Follow all Task Execution Workflow Customizations steps or instructions included in this file.
 
+### Debugging discipline
+
+When diagnosing a failure — especially an environment- or deployment-specific one — follow these before reaching for deep infrastructure theories:
+
+- **Config-parity first.** When the _same build/image_ is healthy in one environment and broken in another, diff the per-environment **configuration** (env vars, secrets, config maps) **before** investigating code, mounts, or timing. A green staging + red prod on an identical build is a config delta until proven otherwise.
+- **Diagnose the real process, not a convenience shell.** Env-dependent behavior (`$HOME`, `expanduser`, `PATH`) can differ between an interactive shell (`kubectl exec`, SSH) and the actual service process, because the runtime may inject env from the user's passwd entry for exec sessions only. Read the real process's environment (e.g. `/proc/1/environ`), not an exec shell's `echo $HOME`.
+- **Reproduce with the app's real inputs.** When something fails in-app but "works" in a manual test, make the manual test use the **same resolved config/arguments** the app uses — not hardcoded stand-ins. A hardcoded value that passes proves nothing about the config-derived path.
+- **Pick the single decisive check.** When each diagnostic round-trips through a human or slow tooling, choose the one test that discriminates between the leading hypotheses in a single step instead of iterating one theory at a time.
+- **Drop disproven theories and their artifacts immediately.** When a hypothesis is refuted, discard any half-built fix or branch for it — do not push a dead branch or apply a known no-op "just in case".
+
+### Permissions hygiene
+
+- **Never allowlist an interpreter or shell.** Entries like `Bash(python3:*)`, `Bash(node:*)`, `Bash(bash -c:*)`, `Bash(sh -c:*)`, or `Bash(xargs:*)` are effectively arbitrary code execution — the permission matcher only sees the command prefix, not what the interpreter runs, so they are no narrower than allowing everything. Allowlist the **specific read-only tools** the task needs instead (e.g. `Bash(jq:*)` for JSON processing, `Bash(kubectl logs:*)` / `Bash(gcloud logging read:*)` for reads). Keep state-mutating or code-executing commands behind manual approval.
+
 ---
 
 ## 🔵 PHASE 3: VALIDATION (Before Creating/Updating PR)
 
 Complete every **applicable** check before creating a PR. The commands below are
 examples — use the project's actual equivalents, and skip any check the project
-does not configure. (For example, this repo has no test/lint/build step; its
-validation is `npm run format:check` via Prettier.)
+does not configure.
 
 ### 3.1 Run Tests
 
@@ -246,6 +291,8 @@ When a change affects user-facing UI **and** the Playwright MCP server is availa
 - [ ] Attach screenshots to the PR description with clear before/after labels.
 
 Save screenshots under .agent/screenshots/ticket-<number>/ so they're traceable. Do not commit them — upload to the PR directly via gh pr comment --body-file referencing the image, or use gh to attach via a GitHub-hosted upload. If the change has no user-facing UI, or the Playwright MCP server is unavailable, skip this step (note the skip in the PR when relevant).
+
+If the affected surface requires authentication or a live backend that is not available in the current environment, Playwright cannot render it — treat this as an allowed skip, note it in the PR, and rely on the build and tests for confidence. Do not treat an un-verifiable surface as a blocker.
 
 **CHECKPOINT: All validation items complete?**
 
@@ -298,6 +345,13 @@ Review PR #<number> comprehensively and post findings as PR review comment
 
 If no review agent is available, perform a self-review of the diff instead and
 note that in the PR.
+
+Match the review effort to the change. For a **trivial diff** — copy/label text,
+comments, config or permission entries, or a mechanical rename with no logic
+change — a self-review posted as the review comment is sufficient; you do not
+need to spawn the `pr-reviewer` agent. Reserve the agent for diffs that change
+logic, control flow, data handling, or public contracts. Either way, the
+distinct reviewer comment in this step is still required.
 
 The reviewer must **always** leave a distinct PR review comment, even when the
 review finds nothing actionable (in that case the comment should say so
@@ -374,12 +428,40 @@ incoming CI / review / comment event:
 - **Scope change:** whenever a commit you push while watching materially changes
   what the PR contains, update the PR title and/or description with `gh pr edit`
   so they still match the branch (see 4.1).
+- **`main` advanced:** when another change lands on `main` while you are watching
+  the PR, attempt to rebase the PR branch onto the latest `main`. If the rebase
+  cannot be completed cleanly because of conflicts, merge `main` into the PR
+  branch where needed instead of abandoning the update. Resolve conflicts so that
+  both sides' intent is preserved — keep the intentions behind the changes
+  already in the PR branch and the intentions behind the newer changes that
+  landed on `main`. Only when there is a true either/or conflict where one side
+  must win, prefer the PR branch being watched. After resolving, report a
+  concrete list of the files or conflicts that required manual resolution.
 - Never poll with `sleep` or repeated status checks — events wake the session.
-- Stop watching the moment the user asks; unsubscribe and push no further
-  changes to that PR.
+
+**Monitoring `main` with `CronCreate`.** PR-activity webhooks do **not** deliver
+the events that matter most for keeping a PR current: `main` advancing, CI
+turning green, and merge-conflict transitions are never pushed. So relying on the
+subscription alone leaves the "`main` advanced" case (above) undetected. To cover
+it, schedule a recurring self check-in with the **`CronCreate`** tool when it is
+available (it supersedes the older `send_later` approach, which is not provisioned
+in this environment). Arm it right after subscribing — roughly hourly on an
+off-minute (e.g. cron `37 * * * *`, not `0`/`30`) — with a prompt that re-checks
+the watched PR: fetch and compare the PR branch against `origin/main` and
+rebase/merge per the `main` advanced rule if it moved, re-check CI status and
+mergeability and act on anything actionable, and stop the job (via `CronDelete`)
+once the PR is merged or closed. The job must stay silent when nothing changed —
+no user message, no PR comment. `CronCreate` jobs are session-only and auto-expire
+after 7 days, so re-arm if the PR is still open past that. If `CronCreate` is also
+unavailable, note the skip and fall back to event-driven watching only.
+
+- Stop watching the moment the user asks; unsubscribe, cancel the `CronCreate`
+  job with `CronDelete`, and push no further changes to that PR.
 
 - [ ] Subscribed to PR activity (if supported)
 - [ ] Initial CI status + unresolved review comments checked and addressed
+- [ ] Recurring `CronCreate` self check-in armed to catch `main` advancing / CI green / merge transitions (if supported)
+- [ ] When `main` advances: rebased onto `main` (merged on conflict, preserving both sides' intent, preferring the PR branch on a true either/or conflict) and reported any files needing manual resolution
 
 ---
 
@@ -452,6 +534,7 @@ Core principles
 - Default to a `src/` layout for packages (e.g., `src/<package_name>/...`) and keep import paths clean.
 - Keep configuration, documentation, and tooling files at the repo root.
 - Put tests in `tests/` and write tests that are fast, deterministic, and isolated.
+- Do not add tests for non-production repo surfaces. The no-tests rule applies at least to docs, infrastructure, scripts, dev tools, and repo-maintenance-only helpers that exist solely to support these. Check AGENTS.md for any additional repo-specific instructions about files and directories to exclude.
 - Organize code by feature/domain rather than by “layers” unless the project clearly benefits.
   Environment and dependencies
 - Always assume an isolated virtual environment.
@@ -508,7 +591,10 @@ Phase 4: Submission
 ├─ Add reviewer (designated assignee(s), if supported)
 ├─ Comment on ticket
 ├─ Update ticket status (if supported)
-└─ Subscribe to PR activity + watch CI/reviews until merged (if supported)
+├─ Subscribe to PR activity + watch CI/reviews until merged (if supported)
+└─ When main advances while watching: rebase onto main (merge on conflict),
+   preserve both sides' intent, prefer the PR branch on a true either/or
+   conflict, and report files that needed manual resolution
 
 Note: skip any ticket/issue step above that the current provider does not
 support, and any tool-specific step whose tool is unavailable — see
