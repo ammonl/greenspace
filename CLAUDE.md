@@ -282,7 +282,8 @@ npm run build  # or the project's build command
 
 ### 3.5 Visual Verification
 
-When a change affects user-facing UI **and** the Playwright MCP server is available, use it to:
+When a change affects user-facing UI, **always** capture screenshots and include
+them in the PR. This is not optional for UI changes.
 
 - [ ] Start the dev server (or relevant preview).
 - [ ] Navigate to the affected route.
@@ -290,9 +291,42 @@ When a change affects user-facing UI **and** the Playwright MCP server is availa
 - [ ] For modified surfaces, also check out main, capture the "before" at the same viewports, then return to the feature branch.
 - [ ] Attach screenshots to the PR description with clear before/after labels.
 
-Save screenshots under .agent/screenshots/ticket-<number>/ so they're traceable. Do not commit them — upload to the PR directly via gh pr comment --body-file referencing the image, or use gh to attach via a GitHub-hosted upload. If the change has no user-facing UI, or the Playwright MCP server is unavailable, skip this step (note the skip in the PR when relevant).
+**Preferred tool: Playwright MCP server.** The project `.mcp.json` configures a
+Playwright MCP server with `--browser chromium --headless`. Use it to navigate,
+interact (click toggles, fill forms, select states), and screenshot.
 
-If the affected surface requires authentication or a live backend that is not available in the current environment, Playwright cannot render it — treat this as an allowed skip, note it in the PR, and rely on the build and tests for confidence. Do not treat an un-verifiable surface as a blocker.
+**Fallback: Playwright CLI.** If the MCP server is unavailable or errors out,
+use the Playwright CLI directly via Bash. The environment pre-installs Chromium
+at `/opt/pw-browsers` with `PLAYWRIGHT_BROWSERS_PATH` already set:
+
+```bash
+# Simple full-page screenshot
+npx -y playwright@latest screenshot --browser chromium --viewport-size "1440,900" --full-page http://localhost:5173 screenshot.png
+
+# For interactive scenarios (clicking, toggling state), write a short script:
+node -e "
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto('http://localhost:5173');
+  await page.screenshot({ path: 'before.png', fullPage: true });
+  await page.click('input[type=checkbox]');
+  await page.screenshot({ path: 'after.png', fullPage: true });
+  await browser.close();
+})();
+"
+```
+
+Save screenshots under `.agent/screenshots/ticket-<number>/` so they're
+traceable. Do not commit them — upload to the PR directly via `gh pr comment
+--body-file` referencing the image, or use `gh` to attach via a GitHub-hosted
+upload. If the change has no user-facing UI, skip this step.
+
+If the affected surface requires authentication or a live backend that is not
+available in the current environment, Playwright cannot render it — treat this
+as an allowed skip, note it in the PR, and rely on the build and tests for
+confidence. Do not treat an un-verifiable surface as a blocker.
 
 **CHECKPOINT: All validation items complete?**
 
