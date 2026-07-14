@@ -318,10 +318,13 @@ const { chromium } = require('playwright');
 "
 ```
 
-Save screenshots under `.agent/screenshots/ticket-<number>/` so they're
-traceable. Do not commit them — upload to the PR directly via `gh pr comment
---body-file` referencing the image, or use `gh` to attach via a GitHub-hosted
-upload. If the change has no user-facing UI, skip this step.
+Save screenshots under a top-level `screenshots/ticket-<number>/` folder and
+**commit them** as part of the change, then reference them in the PR description
+(e.g. with before/after image embeds or links to the committed files). This
+reverses the earlier "do not commit screenshots" guidance: committing them into
+the repo is now the intended way to include them in the PR, so they render/link
+from the description without depending on `gh` or an external upload. If the
+change has no user-facing UI, skip this step.
 
 If the affected surface requires authentication or a live backend that is not
 available in the current environment, Playwright cannot render it — treat this
