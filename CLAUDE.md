@@ -289,7 +289,7 @@ them in the PR. This is not optional for UI changes.
 - [ ] Navigate to the affected route.
 - [ ] Capture screenshots at the relevant viewports (e.g., 375px, 768px, 1440px).
 - [ ] For modified surfaces, also check out main, capture the "before" at the same viewports, then return to the feature branch.
-- [ ] Attach screenshots to the PR description with clear before/after labels.
+- [ ] Embed screenshots directly in the PR description as Markdown images (backed by the `screenshots` branch — see below), with clear before/after labels.
 
 **Preferred tool: Playwright MCP server.** The project `.mcp.json` configures a
 Playwright MCP server with `--browser chromium --headless`. Use it to navigate,
@@ -318,13 +318,36 @@ const { chromium } = require('playwright');
 "
 ```
 
-Save screenshots under a top-level `screenshots/ticket-<number>/` folder and
-**commit them** as part of the change, then reference them in the PR description
-(e.g. with before/after image embeds or links to the committed files). This
-reverses the earlier "do not commit screenshots" guidance: committing them into
-the repo is now the intended way to include them in the PR, so they render/link
-from the description without depending on `gh` or an external upload. If the
-change has no user-facing UI, skip this step.
+**Commit screenshot files to the `screenshots` branch, not the feature branch,
+and embed them in the PR description as Markdown images.** Do **not** commit
+screenshot assets into the code-change branch being reviewed — that would put
+binary image files in the diff under review. Instead:
+
+- Commit the screenshot files to a dedicated `screenshots` branch in this repo,
+  under a `screenshots/ticket-<number>/` path. **If the `screenshots` branch
+  does not exist yet, create it first** (e.g. from an existing branch:
+  `git fetch origin`, then `git push origin origin/main:refs/heads/screenshots`
+  to create it on the remote), then add the image files there and push.
+- In the PR description, embed each screenshot inline as a Markdown image that
+  points at the file on the `screenshots` branch via its raw URL, using the
+  form:
+
+  ```markdown
+  ![alt text](https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/image.png)
+  ```
+
+  For example:
+
+  ```markdown
+  ![settings panel — after](https://raw.githubusercontent.com/ammonl/ammonl-claude/screenshots/screenshots/ticket-61/after-1440.png)
+  ```
+
+  Use `screenshots` as the `BRANCH` segment and the committed path (e.g.
+  `screenshots/ticket-<number>/after-1440.png`) as `path/to/image.png` so the
+  images render inline in the PR description without depending on `gh` or an
+  external upload. Provide clear before/after labels in the alt text.
+
+If the change has no user-facing UI, skip this step.
 
 If the affected surface requires authentication or a live backend that is not
 available in the current environment, Playwright cannot render it — treat this
@@ -350,7 +373,7 @@ Create PR with:
 - **Title**: Conventional commit format (feat:, fix:, etc.)
 - **Body**: Include ticket number, summary, test plan
 - **Link**: Reference ticket (#<number>)
-- **Screenshots (visual changes)**: If the change affects any user-facing UI, include screenshots in the PR description. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
+- **Screenshots (visual changes)**: If the change affects any user-facing UI, embed screenshots in the PR description as Markdown images backed by files committed to the `screenshots` branch (see 3.5), not the feature branch. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
 
 ```bash
 gh pr create --title "feat: <description>" --body "..."
