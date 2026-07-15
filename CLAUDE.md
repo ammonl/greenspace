@@ -132,6 +132,47 @@ rest of the workflow: every other phase and step still runs as written, and
 steps that the provider _does_ support (for example, reading the ticket,
 adding labels that exist, and commenting) must still be completed.
 
+## Remote Session Provisioning for Screenshots (Playwright hook)
+
+For Claude Code on the web to run the app and capture screenshots (the
+[3.5 Visual Verification](#35-visual-verification) step), the container needs a
+remote `SessionStart` hook that installs the repo's dependencies and the browser
+the Playwright MCP drives. The synced `settings.json` already registers this hook
+at `.claude/hooks/session-start.sh` with `matcher: "remote"`, but the script
+itself is **not** part of the sync set — each repo must carry its own, because
+the dependency-install step is stack-specific (for example `npm install` vs.
+`uv pip install -e '.[dev]'` vs. a build). Only the browser-install step is
+identical across repos.
+
+On any task, do a quick check and bootstrap the hook if it is missing — this is
+a one-time-per-repo action that no-ops once the hook exists:
+
+- Look for `.claude/hooks/session-start.sh` that installs the repo's
+  dependencies **and** the Playwright MCP browser. If it exists and does both,
+  do nothing further.
+- The base Chromium at `/opt/pw-browsers` is **not** the browser the MCP drives —
+  it needs the `chrome-for-testing` build, which is not pre-installed — so the
+  hook must install it explicitly.
+- If the hook is missing (or present but does not install the MCP browser),
+  create or update `.claude/hooks/session-start.sh` so it is:
+  - remote-only (guard on `CLAUDE_CODE_REMOTE`), **asynchronous** (its first
+    stdout line is `{"async": true, "asyncTimeout": 600000}`), idempotent, and
+    prep-only — it must never start a long-running dev server.
+  - installs the repo's dependencies with the stack's real command (confirm it
+    from the repo's manifests / `AGENTS.md`, e.g. `npm install`,
+    `uv pip install -e '.[dev]'`), then the MCP browser:
+    `npx --yes @playwright/mcp@latest install-browser chrome-for-testing`
+    (add `npx --yes playwright install-deps chromium` where the OS libraries are
+    not already present).
+  - `chmod +x` and registered under `hooks.SessionStart` with `matcher: "remote"`
+    by merging into `.claude/settings.json`, preserving existing hooks.
+- Prove it end-to-end before committing: run the hook against a simulated cold
+  start, serve the app, capture one Playwright-MCP screenshot, then delete the
+  screenshot and any test artifacts so they are not committed.
+- Open a **dedicated PR** for just this hook/config change, separate from the
+  task at hand. A repo may set stack-specific details (install command, port,
+  health check) in its `AGENTS.md`.
+
 # 📋 MANDATORY WORKFLOW FOR EVERY TASK
 
 Every task follows this exact pattern. **No skipping phases.**
