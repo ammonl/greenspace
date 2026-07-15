@@ -173,6 +173,47 @@ a one-time-per-repo action that no-ops once the hook exists:
   task at hand. A repo may set stack-specific details (install command, port,
   health check) in its `AGENTS.md`.
 
+## Remote Session Provisioning for Screenshots (Playwright hook)
+
+For Claude Code on the web to run the app and capture screenshots (the
+[3.5 Visual Verification](#35-visual-verification) step), the container needs a
+remote `SessionStart` hook that installs the repo's dependencies and the browser
+the Playwright MCP drives. The synced `settings.json` already registers this hook
+at `.claude/hooks/session-start.sh` with `matcher: "remote"`, but the script
+itself is **not** part of the sync set — each repo must carry its own, because
+the dependency-install step is stack-specific (for example `npm install` vs.
+`uv pip install -e '.[dev]'` vs. a build). Only the browser-install step is
+identical across repos.
+
+On any task, do a quick check and bootstrap the hook if it is missing — this is
+a one-time-per-repo action that no-ops once the hook exists:
+
+- Look for `.claude/hooks/session-start.sh` that installs the repo's
+  dependencies **and** the Playwright MCP browser. If it exists and does both,
+  do nothing further.
+- The base Chromium at `/opt/pw-browsers` is **not** the browser the MCP drives —
+  it needs the `chrome-for-testing` build, which is not pre-installed — so the
+  hook must install it explicitly.
+- If the hook is missing (or present but does not install the MCP browser),
+  create or update `.claude/hooks/session-start.sh` so it is:
+  - remote-only (guard on `CLAUDE_CODE_REMOTE`), **asynchronous** (its first
+    stdout line is `{"async": true, "asyncTimeout": 600000}`), idempotent, and
+    prep-only — it must never start a long-running dev server.
+  - installs the repo's dependencies with the stack's real command (confirm it
+    from the repo's manifests / `AGENTS.md`, e.g. `npm install`,
+    `uv pip install -e '.[dev]'`), then the MCP browser:
+    `npx --yes @playwright/mcp@latest install-browser chrome-for-testing`
+    (add `npx --yes playwright install-deps chromium` where the OS libraries are
+    not already present).
+  - `chmod +x` and registered under `hooks.SessionStart` with `matcher: "remote"`
+    by merging into `.claude/settings.json`, preserving existing hooks.
+- Prove it end-to-end before committing: run the hook against a simulated cold
+  start, serve the app, capture one Playwright-MCP screenshot, then delete the
+  screenshot and any test artifacts so they are not committed.
+- Open a **dedicated PR** for just this hook/config change, separate from the
+  task at hand. A repo may set stack-specific details (install command, port,
+  health check) in its `AGENTS.md`.
+
 # 📋 MANDATORY WORKFLOW FOR EVERY TASK
 
 Every task follows this exact pattern. **No skipping phases.**
@@ -331,6 +372,7 @@ them in the PR. This is not optional for UI changes.
 - [ ] Capture screenshots at the relevant viewports (e.g., 375px, 768px, 1440px).
 - [ ] For modified surfaces, also check out main, capture the "before" at the same viewports, then return to the feature branch.
 - [ ] Embed screenshots directly in the PR description as Markdown images (backed by the `screenshots` branch — see below), with clear before/after labels.
+- [ ] Embed screenshots directly in the PR description as Markdown images (backed by the `screenshots` branch — see below), with clear before/after labels.
 
 **Preferred tool: Playwright MCP server.** The project `.mcp.json` configures a
 Playwright MCP server with `--browser chromium --headless`. Use it to navigate,
@@ -389,6 +431,64 @@ binary image files in the diff under review. Instead:
   external upload. Provide clear before/after labels in the alt text.
 
 If the change has no user-facing UI, skip this step.
+**Commit screenshot files to the `screenshots` branch, not the feature branch,
+and embed them in the PR description as Markdown images.** Do **not** commit
+screenshot assets into the code-change branch being reviewed — that would put
+binary image files in the diff under review. Instead:
+
+- Commit the screenshot files to a dedicated `screenshots` branch in this repo,
+  under a `screenshots/ticket-<number>/` path. **If the `screenshots` branch
+  does not exist yet, create it first** (e.g. from an existing branch:
+  `git fetch origin`, then `git push origin origin/main:refs/heads/screenshots`
+  to create it on the remote), then add the image files there and push.
+- In the PR description, embed each screenshot inline as a Markdown image that
+  points at the file on the `screenshots` branch via its raw URL, using the
+  form:
+
+  ```markdown
+  ![alt text](https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/image.png)
+  ```
+
+  For example:
+
+  ```markdown
+  ![settings panel — after](https://raw.githubusercontent.com/ammonl/ammonl-claude/screenshots/screenshots/ticket-61/after-1440.png)
+  ```
+
+  Use `screenshots` as the `BRANCH` segment and the committed path (e.g.
+  `screenshots/ticket-<number>/after-1440.png`) as `path/to/image.png` so the
+  images render inline in the PR description without depending on `gh` or an
+  external upload. Provide clear before/after labels in the alt text.
+
+> **Private repositories: raw URLs do NOT render inline.** The
+> `raw.githubusercontent.com` embed above only works for **public** repos.
+> GitHub renders images in PR/issue bodies through its camo image proxy, which
+> fetches the URL server-side **without authentication**; for a private repo the
+> raw (and `github.com/<owner>/<repo>/raw/...`) URL requires a token, so camo
+> gets a 404 and the image shows broken — even though the `blob` view opens fine
+> for a logged-in human. Check the repo's visibility first (e.g.
+> `gh repo view <owner>/<repo> --json visibility`, or note a 404 on the repo
+> homepage when unauthenticated) and branch on it:
+>
+> - **Public repo:** use the `raw.githubusercontent.com` embed above.
+> - **Private repo:** the only thing that renders inline for all authorized
+>   viewers is a GitHub **attachment asset** (a `https://github.com/<owner>/<repo>/assets/...`
+>   or `https://github.com/user-attachments/assets/...` URL), which is minted by
+>   dragging/pasting the image into the PR description composer — it is **not**
+>   tied to repo auth. The API/MCP tools cannot mint these URLs, so an agent
+>   cannot embed them unaided. When the repo is private and no attachment-upload
+>   tool is available:
+>   1. Still commit the images to the `screenshots` branch (durable provenance)
+>      and link to their `blob` view in the PR body — `blob` links work for
+>      anyone who can access the repo, unlike raw embeds.
+>   2. Deliver the image files to the user (e.g. via the file-send tool) with a
+>      one-line instruction to drag them into the PR description box for true
+>      inline rendering.
+>   3. Do **not** leave broken `![](raw...)` embeds in the body — a broken-image
+>      icon is worse than a working link. State explicitly in the PR that inline
+>      previews require the attachment upload because the repo is private.
+
+If the change has no user-facing UI, skip this step.
 
 If the affected surface requires authentication or a live backend that is not
 available in the current environment, Playwright cannot render it — treat this
@@ -414,6 +514,7 @@ Create PR with:
 - **Title**: Conventional commit format (feat:, fix:, etc.)
 - **Body**: Include ticket number, summary, test plan
 - **Link**: Reference ticket (#<number>)
+- **Screenshots (visual changes)**: If the change affects any user-facing UI, embed screenshots in the PR description as Markdown images backed by files committed to the `screenshots` branch (see 3.5), not the feature branch. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
 - **Screenshots (visual changes)**: If the change affects any user-facing UI, embed screenshots in the PR description as Markdown images backed by files committed to the `screenshots` branch (see 3.5), not the feature branch. Include before and after when modifying an existing surface. For new UI where no "before" exists, include after screenshots only and note it's a new surface. Capture the same viewport and state in both images so the diff is obvious.
 
 ```bash
