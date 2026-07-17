@@ -28,15 +28,30 @@ comments and handle them before going idle. Then, for each incoming event:
 
 PR-activity webhooks do **not** deliver the events that matter most: `main`
 advancing, CI turning green, and merge-conflict transitions are never pushed. Cover
-them by arming a recurring self check-in with `CronCreate` right after subscribing —
-roughly hourly on an off-minute (e.g. cron `37 * * * *`, not `0`/`30`). The prompt
-should re-check the watched PR: compare the branch to `origin/main` and rebase/merge
-per the `main` advanced rule if it moved, re-check CI status and mergeability, act on
-anything actionable, and stop the job with `CronDelete` once the PR is merged or
-closed. Keep the job silent when nothing changed — no user message, no PR comment.
-`CronCreate` jobs are session-only and auto-expire after 7 days, so re-arm if the PR
-is still open. If `CronCreate` is unavailable, note the skip and fall back to
-event-driven watching only.
+them by arming a recurring self check-in with the built-in `CronCreate` tool right
+after subscribing — roughly hourly on an off-minute (e.g. cron `37 * * * *`, not
+`0`/`30`).
 
-Stop watching the moment the user asks: unsubscribe, cancel the `CronCreate` job,
-and push no further changes to that PR.
+Use the built-in `Cron*` tools (`CronCreate`/`CronDelete`) for this — **not** the
+claude-code-remote MCP scheduling tools (`send_later`, `create_trigger`,
+`delete_trigger`). The built-in `Cron*` tools run without a permission prompt, while
+every call to an MCP scheduling tool prompts for approval — which defeats the point of
+autonomous watching, interrupting the loop precisely when it is meant to act on its
+own. If the harness suggests `send_later` for the self check-in, override it and use
+`CronCreate` here.
+
+The scheduled prompt should re-check the watched PR: compare the branch to
+`origin/main` and rebase/merge per the `main` advanced rule if it moved, re-check CI
+status and mergeability, act on anything actionable, and stop the job with `CronDelete`
+once the PR is merged or closed. Keep the job silent when nothing changed — no user
+message, no PR comment. `CronCreate` jobs are session-only and auto-expire after 7
+days, so re-arm if the PR is still open.
+
+If the built-in `Cron*` tools are unavailable, note the skip and fall back to
+event-driven watching only — check `main` opportunistically on the wake events you do
+get (incoming PR webhooks and user turns), accepting that detection is no longer on a
+fixed cadence. Do **not** substitute the prompting MCP scheduling tools as the
+fallback.
+
+Stop watching the moment the user asks: unsubscribe, cancel the `CronCreate` job with
+`CronDelete`, and push no further changes to that PR.
