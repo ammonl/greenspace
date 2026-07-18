@@ -92,6 +92,8 @@
       "mcp__Claude_Code_Remote__unsubscribe_pr_activity",
       "mcp__Claude_Code_Remote__update_trigger",
       "mcp__Claude_Code_Remote__*",
+      "mcp__claude-code-remote__send_later",
+      "mcp__claude-code-remote__*",
       "mcp__context7__*",
       "mcp__github__*",
       "mcp__ide__*",
