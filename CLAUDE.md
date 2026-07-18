@@ -57,8 +57,8 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - Run the project's tests, lint/format, and build before opening a PR. Note "N/A"
   for a step the project doesn't have.
 - For user-facing UI changes, capture before/after screenshots (see the
-  `visual-verification` skill) and attach them to the PR with `gh-image` — see
-  `.claude/docs/pr-screenshots.md`.
+  `visual-verification` skill) and attach them to the PR via the
+  `github-image-upload` skill.
 
 ## Phase 4 — Submission
 

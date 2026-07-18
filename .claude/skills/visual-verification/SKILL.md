@@ -1,6 +1,6 @@
 ---
 name: visual-verification
-description: Capture before/after screenshots for user-facing UI changes and embed them in a PR. Use whenever a change affects any rendered UI. Covers Playwright MCP + CLI capture, the dedicated `screenshots` branch, raw-URL embeds for public repos, and the attachment-asset path for private repos.
+description: Capture before/after screenshots for user-facing UI changes and embed them in a PR. Use whenever a change affects any rendered UI. Covers Playwright MCP + CLI capture; embedding goes through the github-image-upload skill (GitHub attachment assets via gh-image).
 ---
 
 # Visual verification
@@ -30,44 +30,33 @@ it.
 
 ## Where screenshots live
 
-Commit image files to a dedicated `screenshots` branch under
-`screenshots/ticket-<n>/`, **never** the code-change branch (binary images must not
-land in the diff under review). If the `screenshots` branch doesn't exist yet,
-create it first:
-
-```bash
-git fetch origin
-git push origin origin/main:refs/heads/screenshots
-```
-
-Then add the image files there and push.
+Keep image files in ignored agent scratch storage, **never** committed to any
+branch — not the code-change branch (binary images must not land in the diff
+under review) and not a dedicated `screenshots` branch (its URLs don't render
+inline in private repos, and it duplicates what attachment assets already do).
+Delete the local files once the PR attachment is verified.
 
 ## Embedding in the PR
 
-- **Public repo:** embed the raw URL as a Markdown image, with clear before/after
-  alt text:
+Embedding goes through the `github-image-upload` skill: upload each image as a
+GitHub **attachment asset** (`https://github.com/user-attachments/assets/...`)
+and paste the returned Markdown into the PR body with clear before/after alt
+text. In headless/agent sessions that means the fail-fast wrapper:
 
-  ```markdown
-  ![settings panel — after](https://raw.githubusercontent.com/OWNER/REPO/screenshots/screenshots/ticket-<n>/after-1440.png)
-  ```
+```bash
+.claude/scripts/upload-pr-screenshot.sh path/to/after-1440.png
+```
 
-  Use `screenshots` as the branch segment and the committed path as the image path
-  so images render inline without depending on `gh` or an external upload.
+Do **not** embed via `raw.githubusercontent.com`, a `/blob/` URL, a
+repository/branch path, or a `screenshots` branch — in these private repos
+GitHub's image proxy can't fetch them, so they render as broken images.
 
-- **Private repo:** `raw.githubusercontent.com` URLs do **not** render inline —
-  GitHub's camo proxy fetches them unauthenticated and gets a 404. Only a GitHub
-  **attachment asset** (`https://github.com/user-attachments/assets/...`), minted by
-  dragging/pasting the image into the PR composer, renders inline; the API/MCP
-  tools cannot mint these. So when the repo is private and no attachment-upload tool
-  is available:
-  1. Still commit the images to the `screenshots` branch and link their `blob` view
-     in the PR body (`blob` links work for anyone with repo access).
-  2. Deliver the image files to the user and ask them to drag them into the PR
-     description box for true inline rendering.
-  3. Do **not** leave broken `![](raw...)` embeds — a broken-image icon is worse
-     than a working link. State that inline previews require the attachment upload
-     because the repo is private.
-     Check visibility first (e.g. `gh repo view <owner>/<repo> --json visibility`).
+If the upload isn't possible (for example `GH_SESSION_TOKEN` is missing or
+expired — see the `github-image-upload` skill), deliver the image files to the
+user and ask them to drag them into the PR description box, which mints the
+same attachment assets. Do **not** leave broken `![](raw...)` embeds — a
+broken-image icon is worse than no image, so state that inline previews are
+pending the attachment upload.
 
 ## Un-verifiable surfaces
 

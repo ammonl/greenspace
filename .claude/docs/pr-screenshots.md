@@ -1,5 +1,10 @@
 # Attaching screenshots to PRs
 
+The canonical instructions for uploading any image to GitHub live in the
+**`github-image-upload` skill** (synced to
+`.claude/skills/github-image-upload/SKILL.md`); this doc is the PR-screenshot
+quick reference and stays consistent with it.
+
 These repositories are **private**, so the only image URL that renders inline in
 a PR body is a GitHub attachment
 (`https://github.com/user-attachments/assets/…`). A `raw.githubusercontent.com`
@@ -40,8 +45,12 @@ prints only the ready-to-paste Markdown on stdout:
 .claude/scripts/upload-pr-screenshot.sh path/to/shot.png owner/repo
 ```
 
-`.claude/scripts/setup-gh-image.sh` installs the extension idempotently; the
-wrapper runs it for you.
+`.claude/scripts/setup-gh-image.sh` installs the extension idempotently and the
+wrapper runs it for you. It prefers the vendored extension source at
+`.claude/scripts/gh-image/` (a local, network-free install that works even when
+the session's GitHub access does not include `drogers0/gh-image`) and only
+falls back to installing from the upstream repo when the vendored copy is
+absent — see the `github-image-upload` skill for details.
 
 ## Rules
 
