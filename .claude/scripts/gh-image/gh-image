@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Vendored-release dispatcher: runs the bundled binary matching the
+# current platform, so "gh extension install ." works from this
+# directory on any supported OS/arch.
+set -euo pipefail
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+os="$(uname -s | tr "[:upper:]" "[:lower:]")"
+arch="$(uname -m)"
+case "$arch" in
+  x86_64) arch="amd64" ;;
+  aarch64 | arm64) arch="arm64" ;;
+esac
+bin=""
+for candidate in "$dir"/dist/*"$os"*"$arch"*; do
+  if [ -f "$candidate" ]; then
+    bin="$candidate"
+    break
+  fi
+done
+if [ -z "$bin" ]; then
+  echo "gh-image: no vendored binary for ${os}-${arch} in ${dir}/dist" >&2
+  exit 1
+fi
+chmod +x "$bin" 2>/dev/null || true
+exec "$bin" "$@"
