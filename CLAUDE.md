@@ -76,9 +76,11 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - Remove the `agent active` label. Add the designated assignee(s) as reviewer.
   Comment the PR link + implementation summary on the ticket, and set it In Review
   (skip steps the provider can't do).
-- **Watch the PR** until it merges, if the subscription tool is available: handle
-  CI failures and review comments, and rebase when `main` advances. Full mechanics
-  (event handling, `CronCreate` self check-in, conflict resolution) are in
+- **Watch the PR** until it merges, if the subscription tool is available: subscribe
+  once right after opening it (accept the single, unsuppressable permission prompt —
+  it's one-time, then events arrive prompt-free), then handle CI failures and review
+  comments, and rebase when `main` advances. Full mechanics (event handling, conflict
+  resolution, and why durable autonomous check-ins aren't used) are in
   `.claude/docs/pr-watching.md`.
 
 ## Conventions
