@@ -1,6 +1,6 @@
 ---
 name: visual-verification
-description: Capture before/after screenshots for user-facing UI changes and embed them in a PR. Use whenever a change affects any rendered UI. Covers Playwright MCP + CLI capture; embedding goes through the github-image-upload skill (GitHub attachment assets via gh-image).
+description: Capture before/after screenshots for user-facing UI changes and embed them in a PR. Use whenever a change affects any rendered UI. Covers Playwright MCP + CLI capture; embedding goes through the github-image-upload skill (S3 presigned URLs).
 ---
 
 # Visual verification
@@ -33,30 +33,29 @@ it.
 Keep image files in ignored agent scratch storage, **never** committed to any
 branch — not the code-change branch (binary images must not land in the diff
 under review) and not a dedicated `screenshots` branch (its URLs don't render
-inline in private repos, and it duplicates what attachment assets already do).
-Delete the local files once the PR attachment is verified.
+inline in private repos, and it duplicates what the S3 upload already does).
+Delete the local files once the PR embed is verified.
 
 ## Embedding in the PR
 
-Embedding goes through the `github-image-upload` skill: upload each image as a
-GitHub **attachment asset** (`https://github.com/user-attachments/assets/...`)
-and paste the returned Markdown into the PR body with clear before/after alt
-text. In headless/agent sessions that means the fail-fast wrapper:
+Embedding goes through the `github-image-upload` skill: upload each image to S3
+and paste the returned presigned-URL Markdown into the PR body with clear
+before/after alt text. In headless/agent sessions that means the fail-fast
+wrapper:
 
 ```bash
-.claude/scripts/upload-pr-screenshot.sh path/to/after-1440.png
+.claude/scripts/upload-pr-screenshot.sh path/to/after-1440.png "After: 1440px"
 ```
 
 Do **not** embed via `raw.githubusercontent.com`, a `/blob/` URL, a
 repository/branch path, or a `screenshots` branch — in these private repos
 GitHub's image proxy can't fetch them, so they render as broken images.
 
-If the upload isn't possible (for example `GH_SESSION_TOKEN` is missing or
-expired — see the `github-image-upload` skill), deliver the image files to the
-user and ask them to drag them into the PR description box, which mints the
-same attachment assets. Do **not** leave broken `![](raw...)` embeds — a
-broken-image icon is worse than no image, so state that inline previews are
-pending the attachment upload.
+If the upload isn't possible (for example the AWS configuration is missing —
+see the `github-image-upload` skill), deliver the image files to the user and
+ask them to drag them into the PR description box, which uploads them directly.
+Do **not** leave broken `![](raw...)` embeds — a broken-image icon is worse
+than no image, so state that inline previews are pending the upload.
 
 ## Un-verifiable surfaces
 

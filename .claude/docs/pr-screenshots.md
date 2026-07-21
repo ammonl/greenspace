@@ -5,92 +5,65 @@ The canonical instructions for uploading any image to GitHub live in the
 `.claude/skills/github-image-upload/SKILL.md`); this doc is the PR-screenshot
 quick reference and stays consistent with it.
 
-These repositories are **private**, so the only image URL that renders inline in
-a PR body is a GitHub attachment
-(`https://github.com/user-attachments/assets/…`). A `raw.githubusercontent.com`
-URL, a `/blob/` link, a repository/branch path, or a dedicated `screenshots`
-branch will **not** render — GitHub's anonymous image proxy can't fetch them for
-a private repo. Upload screenshots with the
-[`drogers0/gh-image`](https://github.com/drogers0/gh-image) `gh` CLI extension
-instead, and paste the returned Markdown into the PR description.
+These repositories are **private**, so a committed image URL
+(`raw.githubusercontent.com`, a `/blob/` link, a repository/branch path, or a
+dedicated `screenshots` branch) will **not** render inline — GitHub's anonymous
+image proxy can't fetch them for a private repo. Instead, upload the screenshot
+to S3 and embed the **presigned GET URL** it returns. GitHub's image proxy
+(Camo) fetches that URL server-side and caches the bytes, so the image renders
+inline and keeps rendering even after the presigned URL expires.
 
 ## Upload
 
-Interactive (from a machine where you're signed into `gh`):
+Use the fail-fast wrapper. It reads the AWS configuration from the environment,
+uploads the image to S3, generates a presigned URL, and prints only the
+ready-to-paste Markdown on stdout (status/errors go to stderr). No AWS CLI is
+needed — the wrapper runs its uploader under `uv run --with boto3`, so it needs
+only `uv` plus network access to PyPI (first run only) and S3:
 
 ```bash
-gh image path/to/shot.png --repo <owner>/<repo>
+.claude/scripts/upload-pr-screenshot.sh path/to/shot.png                 # alt text defaults to the file name
+.claude/scripts/upload-pr-screenshot.sh path/to/shot.png "After: 1440px"
 ```
 
-It prints ready-to-paste Markdown such as:
+It prints Markdown such as:
 
 ```markdown
-![shot.png](https://github.com/user-attachments/assets/…)
+![After: 1440px](https://<bucket>.s3.<region>.amazonaws.com/pr-screenshots/…?X-Amz-Signature=…)
 ```
 
-Paste that into the PR body, or capture it inline when creating the PR:
+Paste that into the PR body, or capture it into a variable when creating the
+PR — check the exit status first so a failed upload aborts instead of writing a
+broken embed:
 
 ```bash
-gh pr create --title "..." --body "Before: $(gh image before.png --repo <owner>/<repo>)"
+embed="$(.claude/scripts/upload-pr-screenshot.sh before.png "Before")" || exit 1
+gh pr create --title "..." --body "$embed"
 ```
-
-In headless/agent sessions, do **not** call `gh image` directly — use the
-fail-fast wrapper, which runs setup, resolves the repo, requires
-`GH_SESSION_TOKEN`, runs the `gh image check-token` preflight, validates the
-returned `user-attachments/assets/…` URL (rejecting raw/blob/branch/empty), and
-prints only the ready-to-paste Markdown on stdout:
-
-```bash
-.claude/scripts/upload-pr-screenshot.sh path/to/shot.png            # repo auto-resolved from the checkout
-.claude/scripts/upload-pr-screenshot.sh path/to/shot.png owner/repo
-```
-
-`.claude/scripts/setup-gh-image.sh` installs the extension idempotently and the
-wrapper runs it for you. It prefers the vendored extension source at
-`.claude/scripts/gh-image/` (a local, network-free install that works even when
-the session's GitHub access does not include `drogers0/gh-image`) and only
-falls back to installing from the upstream repo when the vendored copy is
-absent — see the `github-image-upload` skill for details.
 
 ## Rules
 
 - **Never** embed a PR screenshot via `raw.githubusercontent.com`, a `/blob/`
   URL, a repository/branch path, or a `screenshots` branch.
 - Do not commit screenshots to the feature branch. Keep them in ignored agent
-  scratch storage and delete them once the PR attachment is verified.
+  scratch storage and delete them once the PR embed is verified.
 - Include clearly labeled **before/after** screenshots for user-facing changes
   (after-only for a brand-new surface, noted as such); capture the same viewport
   and state in both images so the diff is obvious.
 
-## Authentication (`GH_SESSION_TOKEN`)
+## Required configuration
 
-Remote/headless uploads need a GitHub `user_session` cookie exposed as
-`GH_SESSION_TOKEN`. It is **not** a PAT, **not** `GH_TOKEN`, and **not** the
-value from `gh auth token`. It grants full account access, so store it as a
-protected environment secret (e.g. a `gh-image` environment) restricted to
-trusted branches/workflows, and treat it like a password. Prefer a dedicated bot
-account with only the required repository access over a personal session.
+The upload flow reads all configuration from the environment:
 
-Provision it once from a trusted machine signed into github.com:
+| Variable                        | Required                       | Meaning                                                                                |
+| ------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------- |
+| `AWS_ACCESS_KEY_ID`             | yes                            | Access key id for the principal that uploads screenshots and signs the presigned URLs. |
+| `AWS_SECRET_ACCESS_KEY`         | yes                            | Secret access key for that principal.                                                  |
+| `AWS_SESSION_TOKEN`             | only for temporary creds       | Session token; include **only** when using temporary STS/session credentials.          |
+| `AWS_REGION`                    | yes                            | Region of the screenshot bucket.                                                       |
+| `PR_SCREENSHOT_S3_BUCKET`       | yes                            | Bucket name screenshots are uploaded to.                                               |
+| `PR_SCREENSHOT_S3_PREFIX`       | no (default `pr-screenshots/`) | Object-key prefix.                                                                     |
+| `PR_SCREENSHOT_URL_TTL_SECONDS` | no (default `604800` = 7 days) | Presigned URL lifetime in seconds (capped at the 7-day SigV4 maximum).                 |
 
-```bash
-.claude/scripts/setup-gh-image.sh
-gh image extract-token   # prints the user_session value; store it as GH_SESSION_TOKEN
-gh image check-token     # validates it — prints the username, never the token
-```
-
-Expose the secret only to the screenshot-upload job:
-
-```yaml
-environment: gh-image
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  GH_SESSION_TOKEN: ${{ secrets.GH_SESSION_TOKEN }}
-```
-
-**Expiry.** The cookie is not long-lived: GitHub invalidates it on sign-out,
-inactivity, or password change, and there is no API to mint or renew it. Because
-`gh image check-token` runs before every upload, an expired session fails loudly
-and early instead of producing a broken image — treat that failure as the signal
-to re-extract (`gh image extract-token`) and update the secret. Rotate or revoke
-through GitHub **Settings → Sessions / sign out**.
+The one-time operator setup — creating the bucket, its 30-day lifecycle rule,
+and the AWS credentials — is documented in the `github-image-upload` skill.
