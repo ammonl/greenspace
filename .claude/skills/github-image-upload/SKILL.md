@@ -59,6 +59,23 @@ Paste that into the PR description (or issue/comment). Include clearly labeled
 brand-new surface, noted as such); capture the same viewport and state in both
 images so the diff is obvious.
 
+### Paste the embed verbatim — do not re-wrap it
+
+The wrapper already emits a complete Markdown image embed (`![alt](url)`). Paste
+it **exactly as-is**. Two easy mistakes turn it into inert text that renders as a
+literal string instead of an image:
+
+- **Do not wrap it in backticks or a fenced code block.** `` `![alt](url)` ``
+  becomes an inline code span — GitHub prints the raw text. This is the most
+  common failure.
+- **Keep the leading `!`.** Without it, `[alt](url)` is a plain hyperlink, not an
+  embedded image.
+
+Image embeds work **inside Markdown table cells**, so before/after tables are
+fine — put the bare `![alt](url)` in the cell, still with no surrounding
+backticks. If an embed shows as literal text like `![alt](https://…)` in the
+rendered PR, this is the cause: remove the backticks and confirm the `!`.
+
 ## When authentication fails — stop and prompt the user
 
 If the credentials are missing, expired, invalid, or unauthorized, the wrapper
@@ -188,6 +205,10 @@ env:
 - **Never** embed an image via `raw.githubusercontent.com`, a `/blob/` URL, a
   repository/branch path, or a `screenshots` branch — and never leave a broken
   `![](…)` embed in a body.
+- **Paste the wrapper's output verbatim** — never wrap the `![alt](url)` embed in
+  backticks or a fenced code block, and keep the leading `!`. Either mistake
+  renders it as literal text instead of an image (see
+  [Paste the embed verbatim](#paste-the-embed-verbatim--do-not-re-wrap-it)).
 - Do not commit screenshots or other one-off image assets to any branch. Keep
   them in ignored agent scratch storage and delete them once the embed renders.
 - Include clearly labeled **before/after** screenshots for user-facing changes

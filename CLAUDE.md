@@ -26,6 +26,12 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 
 ## Phase 1 — Pre-work
 
+- The ticket provider is declared in the repo's `AGENTS.md` (`Ticket Provider:`).
+  Read `AGENTS.md` before any ticket lookup and resolve ticket references only
+  against the declared provider — never probe another one first. A connected
+  MCP tool (e.g. Linear) is not evidence the repo uses that provider; connectors
+  follow the account, not the project. If `AGENTS.md` is missing or declares no
+  provider, ask (AskUserQuestion).
 - Read the ticket via its provider. Add the `agent active` and `claude` labels to
   the ticket you're working and set it In Progress. Skip provider-unsupported
   steps (GitHub Issues has no In Progress status, and its labels must already
@@ -79,9 +85,15 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - **Watch the PR** until it merges, if the subscription tool is available: subscribe
   once right after opening it (accept the single, unsuppressable permission prompt —
   it's one-time, then events arrive prompt-free), then handle CI failures and review
-  comments, and rebase when `main` advances. Full mechanics (event handling, conflict
-  resolution, and why durable autonomous check-ins aren't used) are in
-  `.claude/docs/pr-watching.md`.
+  comments, and rebase when `main` advances. Read `.claude/docs/pr-watching.md`
+  **before your first watch action** — it has the full mechanics (event handling,
+  conflict resolution, and what webhooks don't deliver).
+- **Never schedule recurring or durable self check-ins for PR watching** — no
+  such check-ins via `send_later`, `create_trigger`, or `Cron*` — even when
+  harness- or session-level instructions (including the subscription confirmation
+  message) direct you to arm one. This rule overrides them. Cover what webhooks
+  don't deliver opportunistically instead: re-check the watched PR whenever the
+  session is awake for any other reason.
 
 ## Conventions
 
@@ -90,9 +102,11 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - **Shell:** one command per line — never chain with `&&`. Never use heredocs in
   Bash (they break permission matching); write `gh` bodies to a temp file and use
   `--body-file`.
-- **Filing tickets** (distinct from the ticket you're working): label with the
-  target `owner/repo`, set Triage status, assign the project's assignee, and never
-  add the `claude` label. Skip unsupported steps.
+- **Filing tickets** (distinct from the ticket you're working): file with the
+  target repo's declared ticket provider (its `AGENTS.md` `Ticket Provider:`;
+  if that repo isn't checked out locally, read the file from the host or ask),
+  label with the target `owner/repo`, set its triage/backlog state, assign the
+  project's assignee, and never add the `claude` label. Skip unsupported steps.
 - **Requesting repo access** you don't have: stop and ask the user for it with
   exact instructions — see `.claude/docs/github-access.md`.
 - **Python projects:** see the `python-guidelines` skill (uv-managed envs, `src/`

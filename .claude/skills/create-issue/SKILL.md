@@ -15,13 +15,13 @@ If the user hasn't provided enough detail, ask for:
 - **Acceptance criteria**: How do we know it's done? (optional but recommended)
 - **Priority**: Urgent, High, Medium, Low (default: Medium)
 
-## 2. Detect Platform
+## 2. Choose Platform
 
-Check which platform is available:
-
-1. **Linear first**: If the `mcp__claude_ai_Linear__save_issue` tool is available and the project uses Linear (check for `.linear` config or Linear MCP tools in context), use Linear.
-2. **GitHub fallback**: If the project has a `.git` remote pointing to GitHub, use `gh issue create`.
-3. **If both available**: Ask the user which to use.
+1. **Declared provider first**: If the target repo's `AGENTS.md` declares a **Ticket Provider**, use exactly that platform. Skip auto-detection and do not probe any other provider. If the target repo is not the working repo, read its `AGENTS.md` from the host (e.g. `gh api repos/<owner>/<repo>/contents/AGENTS.md`) or ask.
+2. **Otherwise auto-detect from project-level markers only.** A Linear MCP tool being available in context is NOT evidence the project uses Linear — connectors follow the account, not the project.
+   - **Linear**: The project itself references Linear (a `.linear` config, or Linear issue IDs in the repo) and a Linear issue-creation tool (e.g. `save_issue`) is available.
+   - **GitHub**: The project has a `.git` remote pointing to GitHub — use `gh issue create`.
+3. **If still ambiguous**: Ask the user which to use.
 
 ## 3. Format the Issue
 
@@ -50,7 +50,7 @@ For bugs, include:
 
 ## 4. Create the Issue
 
-**For Linear** (preferred when available):
+**For Linear**:
 Use `mcp__claude_ai_Linear__save_issue` with:
 
 - `title`: The issue title

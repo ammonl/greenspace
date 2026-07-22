@@ -15,14 +15,14 @@ If the user hasn't provided enough detail, ask for:
 - **Acceptance criteria**: How do we know it's done? (optional but recommended)
 - **Priority**: Urgent, High, Medium, Low (default: Medium)
 
-## 2. Detect Platform
+## 2. Choose Platform
 
-Check which platform is available, in this order:
-
-1. **Linear**: If the `mcp__claude_ai_Linear__save_issue` tool is available and the project uses Linear (check for `.linear` config or Linear MCP tools in context), use Linear.
-2. **Jira**: If a Jira MCP tool is available (e.g. `mcp__*jira*__create_issue` / `mcp__atlassian__*`) or the `jira` CLI is installed, and the project uses Jira (check for `.jira`, a configured project key, or Jira MCP tools in context), use Jira.
-3. **GitHub fallback**: If the project has a `.git` remote pointing to GitHub, use `gh issue create`.
-4. **If more than one is available**: Ask the user which to use.
+1. **Declared provider first**: If the target repo's `AGENTS.md` declares a **Ticket Provider**, use exactly that platform. Skip auto-detection and do not probe any other provider. If the target repo is not the working repo, read its `AGENTS.md` from the host (e.g. `gh api repos/<owner>/<repo>/contents/AGENTS.md`) or ask.
+2. **Otherwise auto-detect from project-level markers only.** An MCP connector being available in context is NOT evidence the project uses that platform — connectors follow the account, not the project.
+   - **Linear**: The project itself references Linear (a `.linear` config, or Linear issue IDs in the repo) and a Linear issue-creation tool (e.g. `save_issue`) is available.
+   - **Jira**: The project itself references Jira (a `.jira` config or a configured project key) and a Jira MCP tool (e.g. `mcp__*jira*__create_issue` / `mcp__atlassian__*`) or the `jira` CLI is available.
+   - **GitHub**: The project has a `.git` remote pointing to GitHub — use `gh issue create`.
+3. **If still ambiguous**: Ask the user which to use.
 
 ## 3. Format the Issue
 
@@ -66,7 +66,7 @@ For any cutover, configuration, or deployment ticket:
 
 ## 4. Create the Issue
 
-**For Linear** (preferred when available):
+**For Linear**:
 Use `mcp__claude_ai_Linear__save_issue` with:
 
 - `title`: The issue title
@@ -101,7 +101,7 @@ gh issue create --title "<title>" --body-file /tmp/issue-body.txt --label "<type
 
 GitHub Issues has no native Todo state. Interpret a request to put a GitHub issue in Todo as leaving the issue open, unless a configured GitHub Project exposes a Todo status; when it does, add the issue to that project status.
 
-Put a filed ticket in `Triage` (Linear) or the project's equivalent backlog/triage state (Jira). Assign the designated project assignee if one exists.
+Put a filed ticket in its provider's triage/backlog state (Linear `Triage`, the Jira equivalent, or a configured GitHub Project triage column). Assign the designated project assignee if one exists.
 
 Do NOT add a "Codex" or "claude" label when creating issues. Those labels are reserved for when an agent picks up a ticket to work on it.
 
