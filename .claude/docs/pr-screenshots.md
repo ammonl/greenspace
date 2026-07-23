@@ -41,6 +41,29 @@ embed="$(.claude/scripts/upload-pr-screenshot.sh before.png "Before")" || exit 1
 gh pr create --title "..." --body "$embed"
 ```
 
+## Before/after tables
+
+For a before/after pair, let the wrapper build the whole table with `--table`
+instead of hand-assembling the cells — hand-assembly is where the embeds
+regress into code-wrapped text or plain links:
+
+```bash
+table="$(.claude/scripts/upload-pr-screenshot.sh --table before.png after.png "Before" "After")" || exit 1
+gh pr create --title "..." --body "$table"
+```
+
+It prints a ready-to-paste table whose cells are already bare `![alt](url)`
+embeds — paste it verbatim, add no backticks, keep each leading `!`:
+
+```markdown
+| Before                                                                    | After                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| ![Before](https://<bucket>.s3.<region>.amazonaws.com/…?X-Amz-Signature=…) | ![After](https://<bucket>.s3.<region>.amazonaws.com/…?X-Amz-Signature=…) |
+```
+
+Do **not** wrap the cells in backticks or drop the `!` (`` `[Before]()` `` /
+`[After]()`) — that renders as clickable text, not inline images.
+
 ## Rules
 
 - **Never** embed a PR screenshot via `raw.githubusercontent.com`, a `/blob/`

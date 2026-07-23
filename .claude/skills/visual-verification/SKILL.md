@@ -47,6 +47,14 @@ wrapper:
 .claude/scripts/upload-pr-screenshot.sh path/to/after-1440.png "After: 1440px"
 ```
 
+For a before/after pair, use `--table` so the wrapper emits the whole table with
+bare `![alt](url)` cells — never hand-assemble the cells, which is how they
+regress into code-wrapped text or plain links:
+
+```bash
+.claude/scripts/upload-pr-screenshot.sh --table before-1440.png after-1440.png "Before: 1440px" "After: 1440px"
+```
+
 Do **not** embed via `raw.githubusercontent.com`, a `/blob/` URL, a
 repository/branch path, or a `screenshots` branch — in these private repos
 GitHub's image proxy can't fetch them, so they render as broken images.

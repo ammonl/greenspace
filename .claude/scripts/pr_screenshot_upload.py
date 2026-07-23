@@ -5,8 +5,14 @@ Invoked through ``upload-pr-screenshot.sh``, which runs this under
 preinstalled. All configuration is read from the environment; see the
 github-image-upload skill for the variables and the one-time operator setup.
 
-Only the Markdown image embed is written to stdout; every status line and
-error goes to stderr, so the stdout can be captured directly into a PR body.
+Two output shapes, both written to stdout (every status line and error goes to
+stderr, so the stdout can be captured directly into a PR body):
+
+- Default: upload one image and print a single ``![alt](url)`` embed.
+- ``--table``: upload a before and an after image and print a complete,
+  correctly-formed before/after Markdown table. This exists so agents never
+  hand-assemble the table — the most common way the embeds regressed into
+  code-wrapped text or plain ``[alt](url)`` links.
 """
 
 import os
@@ -88,20 +94,12 @@ def fail_credentials(problem, *, regenerate) -> NoReturn:
     raise SystemExit(CREDENTIAL_EXIT_CODE)
 
 
-def main(argv):
-    if not argv:
-        print(
-            "usage: upload-pr-screenshot.sh <screenshot-path> [alt-text]",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
+def resolve_config():
+    """Validate the shared AWS/screenshot configuration once and return it.
 
-    image_path = argv[0]
-    alt_text = argv[1] if len(argv) > 1 else ""
-
-    if not os.path.isfile(image_path):
-        fail(f"screenshot not found: {image_path}", 2)
-
+    Halts via ``fail_credentials`` when required env vars are missing, so both
+    the single-image and table paths fail fast before any upload is attempted.
+    """
     # AWS_SESSION_TOKEN is intentionally not required: it is only set when
     # temporary STS/session credentials are used. All AWS_* values are consumed
     # implicitly by boto3's default credential and region resolution.
@@ -120,14 +118,6 @@ def main(argv):
             regenerate=False,
         )
 
-    extension = os.path.splitext(image_path)[1].lower()
-    content_type = CONTENT_TYPES.get(extension)
-    if content_type is None:
-        fail(
-            f"unsupported image extension '{extension}'; use png, jpg, jpeg, gif, webp, or svg",
-            2,
-        )
-
     ttl_raw = os.environ.get("PR_SCREENSHOT_URL_TTL_SECONDS", str(MAX_TTL_SECONDS))
     if not ttl_raw.isdigit() or not 0 < int(ttl_raw) <= MAX_TTL_SECONDS:
         fail(
@@ -143,6 +133,31 @@ def main(argv):
     if not prefix.endswith("/"):
         prefix += "/"
 
+    return region, bucket, ttl, prefix
+
+
+def validate_image(image_path):
+    """Check the file exists and has a supported extension; return its content type.
+
+    Kept separate from the upload so every image can be validated up front,
+    before any upload runs — in table mode that stops a bad second path from
+    leaving the first image orphaned in the bucket.
+    """
+    if not os.path.isfile(image_path):
+        fail(f"screenshot not found: {image_path}", 2)
+
+    extension = os.path.splitext(image_path)[1].lower()
+    content_type = CONTENT_TYPES.get(extension)
+    if content_type is None:
+        fail(
+            f"unsupported image extension '{extension}'; use png, jpg, jpeg, gif, webp, or svg",
+            2,
+        )
+    return content_type
+
+
+def upload_embed(s3, bucket, ttl, prefix, image_path, alt_text, content_type):
+    """Upload one already-validated image and return its ``![alt](url)`` embed."""
     # Unique object key: a timestamp plus random bytes avoids collisions when the
     # same screenshot name is uploaded from different PRs or runs.
     filename = os.path.basename(image_path)
@@ -150,22 +165,11 @@ def main(argv):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     key = f"{prefix}{stamp}-{secrets.token_hex(4)}-{safe_name}"
 
-    import boto3
-    from botocore.config import Config
     from botocore.exceptions import (
         BotoCoreError,
         ClientError,
         NoCredentialsError,
         PartialCredentialsError,
-    )
-
-    # Force SigV4 with virtual-hosted addressing so the presigned URL is valid
-    # in every region and can carry the full 7-day expiry; boto3 would otherwise
-    # fall back to the legacy SigV2 query format in some cases.
-    s3 = boto3.client(
-        "s3",
-        region_name=region,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
 
     try:
@@ -193,7 +197,71 @@ def main(argv):
     if not url:
         fail("presign produced no URL")
 
-    print(f"![{alt_text or filename}]({url})")
+    # A bare embed with the leading `!` and no surrounding backticks is the only
+    # shape GitHub renders inline; the wrapper never emits anything else so the
+    # body can paste it verbatim.
+    return f"![{alt_text or filename}]({url})"
+
+
+def make_s3(region):
+    import boto3
+    from botocore.config import Config
+
+    # Force SigV4 with virtual-hosted addressing so the presigned URL is valid
+    # in every region and can carry the full 7-day expiry; boto3 would otherwise
+    # fall back to the legacy SigV2 query format in some cases.
+    return boto3.client(
+        "s3",
+        region_name=region,
+        config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+    )
+
+
+def main(argv):
+    usage = (
+        "usage: upload-pr-screenshot.sh <screenshot-path> [alt-text]\n"
+        "       upload-pr-screenshot.sh --table <before-path> <after-path> "
+        "[before-alt] [after-alt]"
+    )
+
+    if argv and argv[0] == "--table":
+        rest = argv[1:]
+        if not 2 <= len(rest) <= 4:
+            print(usage, file=sys.stderr)
+            raise SystemExit(2)
+        before_path, after_path = rest[0], rest[1]
+        before_alt = rest[2] if len(rest) > 2 else "Before"
+        after_alt = rest[3] if len(rest) > 3 else "After"
+
+        # Validate both images before any upload so a bad after path can't leave
+        # the before image orphaned in the bucket.
+        before_type = validate_image(before_path)
+        after_type = validate_image(after_path)
+
+        region, bucket, ttl, prefix = resolve_config()
+        s3 = make_s3(region)
+        before_embed = upload_embed(s3, bucket, ttl, prefix, before_path, before_alt, before_type)
+        after_embed = upload_embed(s3, bucket, ttl, prefix, after_path, after_alt, after_type)
+
+        # Emit the whole before/after table so nothing is hand-assembled; the
+        # cells hold bare embeds, which render inline inside table cells.
+        print("| Before | After |")
+        print("| --- | --- |")
+        print(f"| {before_embed} | {after_embed} |")
+        return
+
+    if not argv:
+        print(usage, file=sys.stderr)
+        raise SystemExit(2)
+
+    image_path = argv[0]
+    alt_text = argv[1] if len(argv) > 1 else ""
+    # Validate the file before resolving config so a missing screenshot is
+    # reported as such, not masked by a later credential error.
+    content_type = validate_image(image_path)
+    region, bucket, ttl, prefix = resolve_config()
+    s3 = make_s3(region)
+    print(upload_embed(s3, bucket, ttl, prefix, image_path, alt_text, content_type))
 
 
 if __name__ == "__main__":

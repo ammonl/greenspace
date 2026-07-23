@@ -38,7 +38,12 @@ PyPI (first run only, then cached) and to S3.
 ```bash
 .claude/scripts/upload-pr-screenshot.sh path/to/shot.png                 # alt text defaults to the file name
 .claude/scripts/upload-pr-screenshot.sh path/to/shot.png "After: 1440px"
+.claude/scripts/upload-pr-screenshot.sh --table before.png after.png     # emits a full before/after table
 ```
+
+For before/after pairs, prefer `--table` — it uploads both images and prints a
+complete table so you never hand-assemble the cells (see
+[Before/after tables](#beforeafter-tables--let-the-wrapper-build-it)).
 
 Capture the stdout into a variable and check the exit status before using it,
 so a failed upload aborts instead of creating a PR with a broken embed:
@@ -75,6 +80,38 @@ Image embeds work **inside Markdown table cells**, so before/after tables are
 fine — put the bare `![alt](url)` in the cell, still with no surrounding
 backticks. If an embed shows as literal text like `![alt](https://…)` in the
 rendered PR, this is the cause: remove the backticks and confirm the `!`.
+
+### Before/after tables — let the wrapper build it
+
+Hand-assembling the table cells is where the embeds regress: the cell ends up
+code-wrapped (`` `[Before]()` ``) or drops the `!`, so it renders as text or a
+plain link instead of the image. Avoid that by having the wrapper emit the whole
+table with `--table` — it uploads both images and prints a ready-to-paste table
+whose cells are already bare `![alt](url)` embeds:
+
+```bash
+table="$(.claude/scripts/upload-pr-screenshot.sh --table before.png after.png "Before" "After")" || exit 1
+gh pr create --title "..." --body "$table"
+```
+
+The `--table` output has this shape (the wrapper emits compact cells; the
+spacing doesn't matter) — paste it verbatim, no backticks added, each cell
+keeping its leading `!`:
+
+```markdown
+| Before                                                                    | After                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| ![Before](https://<bucket>.s3.<region>.amazonaws.com/…?X-Amz-Signature=…) | ![After](https://<bucket>.s3.<region>.amazonaws.com/…?X-Amz-Signature=…) |
+```
+
+Never write the code-wrapped, link-shaped form — it renders as clickable text,
+not inline images:
+
+```markdown
+| Before       | After       |
+| ------------ | ----------- |
+| `[Before]()` | `[After]()` |
+```
 
 ## When authentication fails — stop and prompt the user
 

@@ -16,6 +16,11 @@
 #
 # Usage:
 #   .claude/scripts/upload-pr-screenshot.sh <screenshot-path> [alt-text]
+#   .claude/scripts/upload-pr-screenshot.sh --table <before-path> <after-path> [before-alt] [after-alt]
+#
+# --table uploads both images and prints a complete before/after Markdown table
+# with bare `![alt](url)` cells, so the table is never hand-assembled (the most
+# common way the embeds regressed into code-wrapped text or plain links).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
