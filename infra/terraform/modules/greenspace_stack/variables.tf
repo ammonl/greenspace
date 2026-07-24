@@ -69,6 +69,30 @@ variable "shared_db_vpc_cidr" {
   }
 }
 
+# ---------- Shared-VPC tenancy ----------
+
+variable "shared_vpc_id" {
+  description = "VPC ID of the shared default VPC owned by `ammonlarson/infra-shared-db`. When non-null, the API Lambda runs in shared-tenancy mode: it attaches to the published shared private subnets with its own egress-only security group in this VPC, and the dedicated VPC interface endpoints and shared-db peering are not created. When null (the default), the Lambda runs in this environment's dedicated VPC. Consume from SSM (`/shared/network/vpc-id`) at plan time — do not hardcode."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.shared_vpc_id == null || can(regex("^vpc-[a-f0-9]+$", var.shared_vpc_id))
+    error_message = "shared_vpc_id must be a valid AWS VPC ID (vpc-...) or null."
+  }
+}
+
+variable "shared_private_subnet_ids" {
+  description = "Private egress subnet IDs in the shared VPC that the API Lambda attaches to in shared-tenancy mode. Required when `shared_vpc_id` is set. Consume from SSM (`/shared/network/private-subnet-ids`) at plan time — do not hardcode."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for id in var.shared_private_subnet_ids : can(regex("^subnet-[a-f0-9]+$", id))])
+    error_message = "shared_private_subnet_ids must all be valid AWS subnet IDs (subnet-...)."
+  }
+}
+
 # ---------- IAM / CI ----------
 
 variable "github_oidc_provider_arn" {

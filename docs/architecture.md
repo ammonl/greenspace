@@ -265,12 +265,16 @@ graph TB
     end
 
     subgraph "AWS (eu-north-1)"
-        subgraph "Networking"
-            VPC[VPC]
+        subgraph "Shared VPC (infra-shared-db, 172.31.0.0/16)"
+            SHARED_SUB[Private Egress Subnets]
+            SHARED_NAT[Shared NAT Gateway]
+        end
+
+        subgraph "Dedicated VPC (dormant, rollback net)"
+            VPC[VPC 10.0/10.1]
             PUB_SUB[Public Subnets]
             PRIV_SUB[Private Subnets]
             IGW[Internet Gateway]
-            NAT[NAT Gateway]
         end
 
         subgraph "Compute"
@@ -328,38 +332,51 @@ graph TB
     IAM_TF --> AMPLIFY
     LAMBDA_URL --> LAMBDA
     EB -->|hourly| LAMBDA
-    LAMBDA --> RDS
-    LAMBDA --> SES_ID
-    LAMBDA --> SECRETS
+    LAMBDA --> SHARED_SUB
+    SHARED_SUB --> RDS
+    SHARED_SUB --> SHARED_NAT
+    SHARED_NAT --> SES_ID
+    SHARED_NAT --> SECRETS
     VPC --> PUB_SUB
     VPC --> PRIV_SUB
     PUB_SUB --> IGW
-    PRIV_SUB --> NAT
     R53 --> SES_ID
     SES_ID --> SES_DKIM
 ```
 
-### Shared-RDS connectivity
+### Shared-VPC tenancy
 
 Greenspace runs on the shared RDS instance owned by
 `ammonlarson/infra-shared-db`; the dedicated per-environment RDS stack was
-decommissioned in #347 after the runtime cutover (#342 / #346). Because the
-Greenspace VPCs run without NAT (only VPC interface endpoints for SES and
-Secrets Manager), Lambda has no internet egress and therefore no public
-path to the shared RDS endpoint. The connectivity model is **VPC peering**
-between each Greenspace VPC and the shared-db default VPC, with private
-DNS resolution enabled on the requester side so the public RDS endpoint
-name resolves to a private address inside the peered VPC. See
-`docs/adr/0001-shared-rds-connectivity.md` for the full decision record and
-`docs/runbooks/shared-rds-migration.md` for the data-migration runbook used
-during cutover.
+decommissioned in #347 after the runtime cutover (#342 / #346). Because
+greenspace has no dedicated database, the API Lambda itself now runs **inside
+the shared default VPC** (172.31.0.0/16) rather than in a dedicated
+per-environment VPC — the account-wide VPC consolidation (#471). The Lambda
+attaches to the shared private egress subnets (published via the SSM tenancy
+contract `/shared/network/vpc-id` and `/shared/network/private-subnet-ids`,
+infra-shared-db#82) with its own egress-only security group in the shared VPC:
+
+- **Database:** the shared RDS lives in the same VPC, so the Lambda reaches it
+  directly over the internal network — no peering hop. The shared RDS security
+  group already admits the shared VPC CIDR.
+- **SES and Secrets Manager:** reached over the shared NAT gateway. The
+  dedicated VPC interface endpoints (≈$57/mo across both environments) are no
+  longer created; tenants must not create endpoints in the shared VPC.
+
+The dedicated VPCs (10.0.0.0/16 staging, 10.1.0.0/16 prod) and their peering
+are left in place, dormant, as the rollback net — reverting the `shared_vpc_id`
+/ `shared_private_subnet_ids` inputs moves the Lambda back and recreates the
+endpoints. They are destroyed by a companion retirement ticket. See
+`docs/adr/0001-shared-rds-connectivity.md` for the original peering decision
+record and `docs/runbooks/shared-rds-migration.md` for the data-migration
+runbook used during the RDS cutover.
 
 ### Environments
 
-| Environment | Domain                | VPC CIDR       | Database                          |
-|-------------|----------------------|----------------|-----------------------------------|
-| staging     | `staging.un17hub.com`| `10.0.0.0/16`  | Shared RDS (`greenspace_staging`) |
-| prod        | `un17hub.com`        | `10.1.0.0/16`  | Shared RDS (`greenspace_prod`)    |
+| Environment | Domain                | Runtime VPC                 | Dedicated VPC (dormant) | Database                          |
+|-------------|----------------------|-----------------------------|-------------------------|-----------------------------------|
+| staging     | `staging.un17hub.com`| Shared (`172.31.0.0/16`)    | `10.0.0.0/16`           | Shared RDS (`greenspace_staging`) |
+| prod        | `un17hub.com`        | Shared (`172.31.0.0/16`)    | `10.1.0.0/16`           | Shared RDS (`greenspace_prod`)    |
 
 ### Terraform Module Structure
 
