@@ -27,6 +27,13 @@ locals {
 
   lambda_subnet_ids         = local.shared_tenancy ? var.shared_private_subnet_ids : aws_subnet.private[*].id
   lambda_security_group_ids = local.shared_tenancy ? [aws_security_group.api_shared[0].id] : [aws_security_group.api.id]
+
+  # Shared-db peering is the DB path only for the dedicated-VPC layout. It is
+  # torn down while in shared-tenancy mode (the shared RDS is reachable directly
+  # inside the shared VPC), but the `shared_db_vpc_id`/`shared_db_vpc_cidr`
+  # inputs stay set so reverting `shared_vpc_id` alone recreates the peering and
+  # restores DB connectivity — the dedicated VPC has no NAT of its own.
+  peering_enabled = var.shared_db_vpc_id != null && !local.shared_tenancy
 }
 
 output "naming_prefix" {

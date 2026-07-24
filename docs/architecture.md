@@ -363,13 +363,26 @@ infra-shared-db#82) with its own egress-only security group in the shared VPC:
   dedicated VPC interface endpoints (≈$57/mo across both environments) are no
   longer created; tenants must not create endpoints in the shared VPC.
 
-The dedicated VPCs (10.0.0.0/16 staging, 10.1.0.0/16 prod) and their peering
-are left in place, dormant, as the rollback net — reverting the `shared_vpc_id`
-/ `shared_private_subnet_ids` inputs moves the Lambda back and recreates the
-endpoints. They are destroyed by a companion retirement ticket. See
-`docs/adr/0001-shared-rds-connectivity.md` for the original peering decision
-record and `docs/runbooks/shared-rds-migration.md` for the data-migration
-runbook used during the RDS cutover.
+The dedicated VPCs (10.0.0.0/16 staging, 10.1.0.0/16 prod) are left in place,
+dormant, as the rollback net. The shared-db peering is torn down while in
+shared-tenancy mode, but its inputs (`shared_db_vpc_id` / `shared_db_vpc_cidr`)
+stay set — so reverting the `shared_vpc_id` / `shared_private_subnet_ids` inputs
+in a single step moves the Lambda back into the dedicated VPC and recreates both
+the interface endpoints and the peering (the dedicated VPC has no NAT of its own,
+so peering is its only DB path). The dedicated VPCs are destroyed by a companion
+retirement ticket. See `docs/adr/0001-shared-rds-connectivity.md` for the
+original peering decision record and `docs/runbooks/shared-rds-migration.md` for
+the data-migration runbook used during the RDS cutover.
+
+Two external preconditions must hold before the cutover apply — the shared-db
+side owns both and neither is enforced by this module, so verify them first:
+
+1. The SSM tenancy contract (`/shared/network/vpc-id`,
+   `/shared/network/private-subnet-ids`) must already be published in each
+   target account/region; otherwise `terraform plan` fails reading the data
+   sources.
+2. The shared RDS security group must admit the shared VPC CIDR, or DB
+   connectivity is lost immediately post-apply with no plan-time signal.
 
 ### Environments
 

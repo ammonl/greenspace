@@ -18,9 +18,10 @@ the staging and production environment stacks.
 
 `peering.tf` provides an opt-in private path from the API Lambda to the
 shared RDS instance owned by `ammonlarson/infra-shared-db`. The peering is
-gated on `shared_db_vpc_id`: when null (the default), no peering resources
-are created. See `docs/adr/0001-shared-rds-connectivity.md` for the full
-context.
+gated on `shared_db_vpc_id` **and** on not being in shared-tenancy mode: when
+`shared_db_vpc_id` is null (the default) or `shared_vpc_id` is set, no peering
+resources are created (see [Shared-VPC tenancy](#shared-vpc-tenancy)). See
+`docs/adr/0001-shared-rds-connectivity.md` for the full context.
 
 To activate, set both inputs in the environment config:
 
@@ -48,9 +49,11 @@ In this mode the module:
   shared VPC;
 - does **not** create the dedicated VPC interface endpoints (SES + Secrets
   Manager) — those services are reached over the shared NAT gateway;
-- does **not** create the shared-db peering (leave `shared_db_vpc_id` unset) —
-  the shared RDS lives in the same VPC, so DB traffic stays internal and its
-  security group already admits the shared VPC CIDR.
+- tears down the shared-db peering — the shared RDS lives in the same VPC, so
+  DB traffic stays internal and its security group already admits the shared VPC
+  CIDR. Keep `shared_db_vpc_id`/`shared_db_vpc_cidr` **set** (not removed): the
+  peering is gated off by tenancy mode, not by dropping the inputs, so that
+  rollback recreates it in one step.
 
 The dedicated VPC and subnets are left in place, dormant, as the rollback net.
 Consume the shared VPC / subnet IDs from SSM at plan time — do not hardcode:
@@ -75,7 +78,9 @@ The CI Terraform (plan) role reads these parameters via a scoped
 `arn:aws:ssm:*:*:parameter/shared/network/*` in the bootstrap policy.
 
 To roll back, remove the two `shared_*` inputs: the Lambda moves back into the
-dedicated VPC and the interface endpoints recreate.
+dedicated VPC and the interface endpoints **and the shared-db peering** recreate
+(the peering inputs were retained, so DB connectivity is restored in the same
+apply).
 
 ## Monitoring & seasonal alarms
 
