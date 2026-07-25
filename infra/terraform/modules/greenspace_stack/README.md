@@ -54,17 +54,22 @@ enable_alarms = true
 
 ## Least-privilege IAM
 
-SES send permissions are scoped to the SES domain identity provisioned by the
-module (`aws_ses_domain_identity`). Wildcard (`*`) resources are not accepted
-where resource-level scoping is possible.
+SES send permissions are scoped to SES identities in this account and region
+(`identity/*`). The domain identity itself is owned by the un17hub repository
+(see below), so it is not a module-managed resource; the identity-ARN pattern
+keeps the runtime role's send scope tight without depending on it.
 
 ## SES email configuration
 
-Each environment provisions its own SES domain identity, DKIM signing, and
-configuration set. Sender addresses default to `greenspace@<ses_sender_domain>`
-and can be overridden via `ses_sender_email`. Reply-To defaults to
-`elise7284@gmail.com` (spec default) and can be overridden via
-`ses_reply_to_email`.
+The SES **domain identity and DKIM signing** for `un17hub.com` — which, via
+SES parent-domain verification, also authorizes sending from the
+`staging.un17hub.com` subdomain — are owned by the **un17hub repository**,
+alongside the `un17hub.com` hosted zone that publishes their DNS records. This
+module provisions only its own per-environment **configuration set** and sends
+from `greenspace@<ses_sender_domain>` against that externally-verified identity.
+Sender addresses default to `greenspace@<ses_sender_domain>` and can be
+overridden via `ses_sender_email`. Reply-To defaults to `elise7284@gmail.com`
+(spec default) and can be overridden via `ses_reply_to_email`.
 
 | Environment | Domain                 | Sender address                        | Reply-To                |
 |-------------|------------------------|---------------------------------------|-------------------------|
@@ -73,16 +78,11 @@ and can be overridden via `ses_sender_email`. Reply-To defaults to
 
 ### DNS verification
 
-Route 53 hosted zones and DNS records for SES domain verification and DKIM
-are managed by Terraform. After the first `terraform apply`:
-
-1. **Point your registrar's nameservers** to the Route 53 zone nameservers
-   (output: `route53_nameservers`).
-2. **Delegate the staging subdomain** by adding an NS record in the prod
-   Route 53 zone for `staging.un17hub.com` pointing to the staging zone's
-   nameservers.
-3. SES will verify the domain and enable DKIM signing automatically once DNS
-   propagates.
+The `un17hub.com` hosted zone (and the `staging.un17hub.com` subdomain folded
+into it) is managed by the un17hub repository, which also publishes the SES
+domain-verification TXT record and DKIM CNAMEs. This module manages no Route 53
+zone or records; SES verification and DKIM are handled by that repository once
+its records propagate.
 
 ## Key variables
 

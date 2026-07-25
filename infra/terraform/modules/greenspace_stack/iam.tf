@@ -59,7 +59,8 @@ data "aws_iam_policy_document" "api_ses" {
       "ses:SendRawEmail",
     ]
     resources = [
-      aws_ses_domain_identity.main.arn,
+      # The domain identity is owned by the un17hub repository (see ses.tf), so
+      # scope by identity ARN pattern rather than a module-managed resource.
       "arn:aws:ses:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:identity/*",
     ]
   }

@@ -75,25 +75,9 @@ output "dashboard_name" {
   value = module.greenspace_stack.dashboard_name
 }
 
-# ---------- Staging subdomain delegation ----------
-
-data "terraform_remote_state" "staging" {
-  backend = "s3"
-
-  config = {
-    bucket = "greenspace-2026-tfstate"
-    key    = "environments/staging/terraform.tfstate"
-    region = "eu-north-1"
-  }
-}
-
-resource "aws_route53_record" "staging_ns" {
-  zone_id = module.greenspace_stack.route53_zone_id
-  name    = "staging.un17hub.com"
-  type    = "NS"
-  ttl     = 300
-  records = data.terraform_remote_state.staging.outputs.route53_nameservers
-}
+# The `staging.un17hub.com` subdomain is folded into the `un17hub.com` hosted
+# zone, which is owned by the un17hub repository. There is no separate staging
+# hosted zone to delegate to, so no NS delegation record is managed here.
 
 output "naming_prefix" {
   value = module.greenspace_stack.naming_prefix
@@ -123,10 +107,6 @@ output "api_base_url" {
   value = module.greenspace_stack.api_base_url
 }
 
-output "ses_domain_identity_arn" {
-  value = module.greenspace_stack.ses_domain_identity_arn
-}
-
 output "ses_configuration_set_name" {
   value = module.greenspace_stack.ses_configuration_set_name
 }
@@ -137,14 +117,6 @@ output "ses_sender_email" {
 
 output "ses_reply_to_email" {
   value = module.greenspace_stack.ses_reply_to_email
-}
-
-output "route53_zone_id" {
-  value = module.greenspace_stack.route53_zone_id
-}
-
-output "route53_nameservers" {
-  value = module.greenspace_stack.route53_nameservers
 }
 
 output "amplify_app_id" {
