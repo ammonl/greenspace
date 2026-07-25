@@ -90,7 +90,7 @@ its records propagate.
 |-------------------------------|------------------------------------------------------|
 | `environment`                 | Deployment environment name (staging, prod)          |
 | `vpc_cidr`                    | CIDR block for the VPC                               |
-| `ses_sender_domain`           | Domain for SES identity and Route 53 zone            |
+| `ses_sender_domain`           | Sender domain / Amplify custom domain (SES identity + zone owned by un17hub repo) |
 | `ses_reply_to_email`          | Default Reply-To (defaults to `elise7284@gmail.com`) |
 | `shared_db_vpc_id`            | Shared-RDS VPC ID; null disables peering             |
 | `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |

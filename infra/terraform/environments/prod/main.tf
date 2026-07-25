@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -78,6 +78,15 @@ output "dashboard_name" {
 # The `staging.un17hub.com` subdomain is folded into the `un17hub.com` hosted
 # zone, which is owned by the un17hub repository. There is no separate staging
 # hosted zone to delegate to, so no NS delegation record is managed here.
+#
+# Transitional: forget the former NS delegation record without destroying it
+# (the staging zone it targeted is already gone). Remove once prod has applied.
+removed {
+  from = aws_route53_record.staging_ns
+  lifecycle {
+    destroy = false
+  }
+}
 
 output "naming_prefix" {
   value = module.greenspace_stack.naming_prefix
