@@ -52,8 +52,13 @@ applications:
     }
   }
 
+  # The Git connection (repository + its OAuth/access token) is established
+  # out-of-band via the Amplify console, not by Terraform — the token is never
+  # supplied here. Amplify's UpdateApp rejects a `repository` change without a
+  # valid token, so `repository` is ignored on update too: it is still set at
+  # create time, but re-pointing an existing app's repo is a console operation.
   lifecycle {
-    ignore_changes = [access_token, oauth_token]
+    ignore_changes = [access_token, oauth_token, repository]
   }
 
   tags = {

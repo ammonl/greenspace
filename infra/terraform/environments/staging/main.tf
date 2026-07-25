@@ -91,10 +91,6 @@ output "api_base_url" {
   value = module.greenspace_stack.api_base_url
 }
 
-output "ses_domain_identity_arn" {
-  value = module.greenspace_stack.ses_domain_identity_arn
-}
-
 output "ses_configuration_set_name" {
   value = module.greenspace_stack.ses_configuration_set_name
 }
@@ -105,14 +101,6 @@ output "ses_sender_email" {
 
 output "ses_reply_to_email" {
   value = module.greenspace_stack.ses_reply_to_email
-}
-
-output "route53_zone_id" {
-  value = module.greenspace_stack.route53_zone_id
-}
-
-output "route53_nameservers" {
-  value = module.greenspace_stack.route53_nameservers
 }
 
 output "amplify_app_id" {
