@@ -93,6 +93,14 @@ variable "shared_private_subnet_ids" {
   }
 }
 
+# ---------- Dedicated VPC retirement ----------
+
+variable "retire_dedicated_vpc" {
+  description = "Retirement gate: when true, this environment's dedicated VPC and everything that exists only to serve it (subnets, route tables, internet gateway, dedicated-VPC security groups, VPC flow logs) are destroyed. Requires the environment to already be in shared-tenancy mode (`shared_vpc_id` set) — enforced by a plan-time precondition. Defaults to false, leaving the dedicated VPC in place as the shared-tenancy rollback net."
+  type        = bool
+  default     = false
+}
+
 # ---------- IAM / CI ----------
 
 variable "github_oidc_provider_arn" {

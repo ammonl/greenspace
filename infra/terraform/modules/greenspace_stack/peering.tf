@@ -24,7 +24,7 @@
 resource "aws_vpc_peering_connection" "shared_db" {
   count = local.peering_enabled ? 1 : 0
 
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = aws_vpc.main[0].id
   peer_vpc_id = var.shared_db_vpc_id
   auto_accept = true
 
@@ -57,7 +57,7 @@ resource "aws_vpc_peering_connection_options" "shared_db" {
 resource "aws_route" "private_to_shared_db" {
   count = local.peering_enabled ? 1 : 0
 
-  route_table_id            = aws_route_table.private.id
+  route_table_id            = aws_route_table.private[0].id
   destination_cidr_block    = var.shared_db_vpc_cidr
   vpc_peering_connection_id = aws_vpc_peering_connection.shared_db[0].id
 }

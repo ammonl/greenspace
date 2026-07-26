@@ -270,13 +270,6 @@ graph TB
             SHARED_NAT[Shared NAT Gateway]
         end
 
-        subgraph "Dedicated VPC (dormant, rollback net)"
-            VPC[VPC 10.0/10.1]
-            PUB_SUB[Public Subnets]
-            PRIV_SUB[Private Subnets]
-            IGW[Internet Gateway]
-        end
-
         subgraph "Compute"
             LAMBDA[Lambda<br/>API Function]
             LAMBDA_URL[Function URL]
@@ -325,7 +318,6 @@ graph TB
     REPO --> CI
     REPO --> TF_WF
     TF_WF -->|OIDC| IAM_TF
-    IAM_TF --> VPC
     IAM_TF --> LAMBDA
     IAM_TF --> SES_ID
     IAM_TF --> R53
@@ -337,9 +329,6 @@ graph TB
     SHARED_SUB --> SHARED_NAT
     SHARED_NAT --> SES_ID
     SHARED_NAT --> SECRETS
-    VPC --> PUB_SUB
-    VPC --> PRIV_SUB
-    PUB_SUB --> IGW
     R53 --> SES_ID
     SES_ID --> SES_DKIM
 ```
@@ -363,19 +352,18 @@ infra-shared-db#82) with its own egress-only security group in the shared VPC:
   dedicated VPC interface endpoints (≈$57/mo across both environments) are no
   longer created; tenants must not create endpoints in the shared VPC.
 
-The dedicated VPCs (10.0.0.0/16 staging, 10.1.0.0/16 prod) are left in place,
-dormant, as the rollback net. The shared-db peering is torn down while in
-shared-tenancy mode, but its inputs (`shared_db_vpc_id` / `shared_db_vpc_cidr`)
-stay set — so reverting the `shared_vpc_id` / `shared_private_subnet_ids` inputs
-in a single step moves the Lambda back into the dedicated VPC and recreates both
-the interface endpoints and the peering (the dedicated VPC has no NAT of its own,
-so peering is its only DB path). The dedicated VPCs are destroyed by a companion
-retirement ticket. See `docs/adr/0001-shared-rds-connectivity.md` for the
-original peering decision record and `docs/runbooks/shared-rds-migration.md` for
-the data-migration runbook used during the RDS cutover.
+Immediately after the tenancy move, the dedicated VPCs (10.0.0.0/16 staging,
+10.1.0.0/16 prod) stayed in place, dormant, as the rollback net: the
+shared-db peering was torn down while in shared-tenancy mode, but its inputs
+(`shared_db_vpc_id` / `shared_db_vpc_cidr`) stayed set so reverting
+`shared_vpc_id` / `shared_private_subnet_ids` in a single step would move the
+Lambda back into the dedicated VPC and recreate both the interface endpoints
+and the peering. See `docs/adr/0001-shared-rds-connectivity.md` for the
+original peering decision record and `docs/runbooks/shared-rds-migration.md`
+for the data-migration runbook used during the RDS cutover.
 
-Two external preconditions must hold before the cutover apply — the shared-db
-side owns both and neither is enforced by this module, so verify them first:
+Two external preconditions had to hold before the cutover apply — the
+shared-db side owns both and neither is enforced by this module:
 
 1. The SSM tenancy contract (`/shared/network/vpc-id`,
    `/shared/network/private-subnet-ids`) must already be published in each
@@ -384,12 +372,32 @@ side owns both and neither is enforced by this module, so verify them first:
 2. The shared RDS security group must admit the shared VPC CIDR, or DB
    connectivity is lost immediately post-apply with no plan-time signal.
 
+### Dedicated VPC retirement
+
+Once each environment's shared-tenancy move validated, its dedicated VPC was
+destroyed (#472): the VPC itself, its subnets, route tables, internet gateway,
+dedicated-VPC security groups, and VPC flow logs. There is no dedicated
+database to retire (greenspace has run on shared-db since #347), so there was
+no soak period — each environment retired as soon as its move validated.
+
+Retirement is a per-environment `retire_dedicated_vpc` module input, gated on
+`shared_vpc_id` already being set (enforced by a plan-time precondition, with
+the underlying resource count itself requiring both conditions as a second
+line of defense). It is a one-way door: reverting `retire_dedicated_vpc`
+recreates a *fresh* dedicated VPC rather than restoring the destroyed one, so
+it is no longer usable as a shared-tenancy rollback net. `aws_kms_key.logs` is
+retained — it also encrypts the API log group and (when alarms are enabled)
+the SNS alarm topic, both unrelated to the dedicated VPC.
+
+Remaining cleanup — the accepter-side `greenspace_peering` ingress and routes
+on the shared-db side — is tracked as a follow-up in `infra-shared-db`.
+
 ### Environments
 
-| Environment | Domain                | Runtime VPC                 | Dedicated VPC (dormant) | Database                          |
-|-------------|----------------------|-----------------------------|-------------------------|-----------------------------------|
-| staging     | `staging.un17hub.com`| Shared (`172.31.0.0/16`)    | `10.0.0.0/16`           | Shared RDS (`greenspace_staging`) |
-| prod        | `un17hub.com`        | Shared (`172.31.0.0/16`)    | `10.1.0.0/16`           | Shared RDS (`greenspace_prod`)    |
+| Environment | Domain                 | Runtime VPC               | Database                          |
+|-------------|------------------------|----------------------------|-----------------------------------|
+| staging     | `staging.un17hub.com`  | Shared (`172.31.0.0/16`)   | Shared RDS (`greenspace_staging`) |
+| prod        | `un17hub.com`          | Shared (`172.31.0.0/16`)   | Shared RDS (`greenspace_prod`)    |
 
 ### Terraform Module Structure
 
@@ -409,11 +417,12 @@ infra/terraform/
         ├── dns.tf             Route 53 zone and records
         ├── iam.tf             IAM roles and policies
         ├── monitoring.tf      CloudWatch, KMS, Alarms, Dashboard, SNS
-        ├── networking.tf      VPC, subnets, gateways
+        ├── networking.tf      VPC, subnets, gateways (dedicated VPC gated + retirable)
         ├── outputs.tf         Module outputs
         ├── ses.tf             SES identity, DKIM, config set
         ├── variables.tf       Input variables
-        └── iam.tftest.hcl     Least-privilege IAM validation tests
+        ├── iam.tftest.hcl     Least-privilege IAM validation tests
+        └── retirement.tftest.hcl  Dedicated VPC retirement gate tests
 ```
 
 ### CI/CD Pipeline

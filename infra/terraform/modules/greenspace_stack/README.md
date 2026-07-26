@@ -7,12 +7,12 @@ the staging and production environment stacks.
 
 | File             | Resources                                                  |
 |------------------|------------------------------------------------------------|
-| `networking.tf`  | VPC, public/private subnets, internet gateway, VPC endpoints, shared-VPC egress-only SG |
+| `networking.tf`  | Dedicated VPC (gated, retirable), public/private subnets, internet gateway, VPC endpoints, shared-VPC egress-only SG |
 | `peering.tf`     | Optional VPC peering to the shared-RDS VPC (gated)         |
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES domain identity, DKIM, configuration set               |
 | `dns.tf`         | Route 53 hosted zone, SES verification/DKIM DNS records    |
-| `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated) |
+| `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
 
 ## Shared-RDS connectivity
 
@@ -80,7 +80,44 @@ The CI Terraform (plan) role reads these parameters via a scoped
 To roll back, remove the two `shared_*` inputs: the Lambda moves back into the
 dedicated VPC and the interface endpoints **and the shared-db peering** recreate
 (the peering inputs were retained, so DB connectivity is restored in the same
-apply).
+apply). This rollback is only available while `retire_dedicated_vpc` is
+`false` — see below.
+
+## Dedicated VPC retirement
+
+`retire_dedicated_vpc` destroys the dedicated VPC and everything that exists
+only to serve it — subnets, route tables, the internet gateway, the
+dedicated-VPC security groups (`aws_security_group.api` and `.db`), and VPC
+flow logs (log group, IAM role, and the `aws_flow_log` itself). It is gated on
+`shared_tenancy` being already active in **two** places: a `lifecycle
+precondition` on `terraform_data.retire_dedicated_vpc_gate` fails the plan
+loudly if `shared_vpc_id` is not set, and `local.dedicated_vpc_count` itself
+requires both conditions — so a config mistake (`retire_dedicated_vpc = true`
+without `shared_vpc_id`) can't silently strand the Lambda's only network path
+even if the precondition were ever bypassed.
+
+```hcl
+retire_dedicated_vpc = true  # requires shared_vpc_id to already be set
+```
+
+There is no dedicated database to retire (greenspace has run on shared-db
+since #347) and therefore no soak period: retire each environment as soon as
+its shared-tenancy move (`shared_vpc_id` / `shared_private_subnet_ids`) has
+validated. Staging and prod retire independently — this module has no
+cross-environment state — with the actual apply ordering enforced by the
+`terraform.yml` workflow (staging applies first; prod applies behind the
+`production` GitHub environment's manual approval).
+
+`aws_kms_key.logs` is **not** destroyed by retirement: it also encrypts the
+API CloudWatch log group and (when `enable_alarms` is true) the SNS alarm
+topic, both of which are unrelated to the dedicated VPC and stay alive.
+Retirement is otherwise a one-way door — reverting `retire_dedicated_vpc` to
+`false` recreates a *fresh* dedicated VPC (new IDs), it does not restore the
+destroyed one.
+
+Module outputs that describe the dedicated VPC (`vpc_id`, `vpc_cidr`,
+`db_security_group_id`) resolve to `null` once retired; `public_subnet_ids`
+and `private_subnet_ids` resolve to empty lists.
 
 ## Monitoring & seasonal alarms
 
@@ -145,6 +182,7 @@ its records propagate.
 | `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |
 | `shared_vpc_id`               | Shared default VPC ID; non-null runs the Lambda in shared-tenancy mode |
 | `shared_private_subnet_ids`   | Shared VPC private subnet IDs (required in tenancy mode) |
+| `retire_dedicated_vpc`        | Destroys the dedicated VPC and its dependents; requires `shared_vpc_id` to already be set |
 | `enable_alarms`               | Seasonal toggle for SNS topic + all CloudWatch alarms |
 | `enable_dashboard`            | Toggle for the CloudWatch operational dashboard      |
 
@@ -153,5 +191,5 @@ See `variables.tf` for the full list with descriptions and defaults.
 ## Testing
 
 ```bash
-terraform test  # Runs iam.tftest.hcl (least-privilege validation)
+terraform test  # Runs iam*.tftest.hcl (least-privilege validation) and retirement.tftest.hcl (retirement gate)
 ```

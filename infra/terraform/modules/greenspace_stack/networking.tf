@@ -1,6 +1,12 @@
 # ---------- VPC ----------
+#
+# Gated on `local.dedicated_vpc_count`: destroyed entirely once
+# `retire_dedicated_vpc` is set (see `retire_dedicated_vpc_gate` in main.tf for
+# the precondition that guards this).
 
 resource "aws_vpc" "main" {
+  count = local.dedicated_vpc_count
+
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -13,7 +19,9 @@ resource "aws_vpc" "main" {
 # ---------- Internet Gateway ----------
 
 resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
+  count = local.dedicated_vpc_count
+
+  vpc_id = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-igw"
@@ -23,9 +31,9 @@ resource "aws_internet_gateway" "main" {
 # ---------- Public Subnets ----------
 
 resource "aws_subnet" "public" {
-  count = length(var.public_subnet_cidrs)
+  count = var.retire_dedicated_vpc ? 0 : length(var.public_subnet_cidrs)
 
-  vpc_id                  = aws_vpc.main.id
+  vpc_id                  = aws_vpc.main[0].id
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = var.availability_zones[count.index]
   map_public_ip_on_launch = true
@@ -36,7 +44,9 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
+  count = local.dedicated_vpc_count
+
+  vpc_id = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-public-rt"
@@ -44,24 +54,26 @@ resource "aws_route_table" "public" {
 }
 
 resource "aws_route" "public_internet" {
-  route_table_id         = aws_route_table.public.id
+  count = local.dedicated_vpc_count
+
+  route_table_id         = aws_route_table.public[0].id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.main.id
+  gateway_id             = aws_internet_gateway.main[0].id
 }
 
 resource "aws_route_table_association" "public" {
   count = length(aws_subnet.public)
 
   subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
+  route_table_id = aws_route_table.public[0].id
 }
 
 # ---------- Private Subnets ----------
 
 resource "aws_subnet" "private" {
-  count = length(var.private_subnet_cidrs)
+  count = var.retire_dedicated_vpc ? 0 : length(var.private_subnet_cidrs)
 
-  vpc_id            = aws_vpc.main.id
+  vpc_id            = aws_vpc.main[0].id
   cidr_block        = var.private_subnet_cidrs[count.index]
   availability_zone = var.availability_zones[count.index]
 
@@ -71,7 +83,9 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
+  count = local.dedicated_vpc_count
+
+  vpc_id = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-private-rt"
@@ -82,15 +96,22 @@ resource "aws_route_table_association" "private" {
   count = length(aws_subnet.private)
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[0].id
 }
 
 # ---------- Security Groups ----------
+#
+# `aws_security_group.api` is the dedicated-VPC Lambda security group. It stays
+# dormant (unused by the Lambda, which runs off `api_shared` instead) once
+# shared-tenancy mode is active, and is destroyed along with the rest of the
+# dedicated VPC on retirement.
 
 resource "aws_security_group" "api" {
+  count = local.dedicated_vpc_count
+
   name_prefix = "${local.naming_prefix}-api-"
   description = "Security group for API Lambda functions"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-api-sg"
@@ -102,7 +123,9 @@ resource "aws_security_group" "api" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "api_all_outbound" {
-  security_group_id = aws_security_group.api.id
+  count = local.dedicated_vpc_count
+
+  security_group_id = aws_security_group.api[0].id
   description       = "Allow all outbound traffic"
   ip_protocol       = "-1"
   cidr_ipv4         = "0.0.0.0/0"
@@ -145,9 +168,11 @@ resource "aws_vpc_security_group_egress_rule" "api_shared_all_outbound" {
 }
 
 resource "aws_security_group" "db" {
+  count = local.dedicated_vpc_count
+
   name_prefix = "${local.naming_prefix}-db-"
   description = "Security group for RDS PostgreSQL"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-db-sg"
@@ -159,12 +184,14 @@ resource "aws_security_group" "db" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "db_from_api" {
-  security_group_id            = aws_security_group.db.id
+  count = local.dedicated_vpc_count
+
+  security_group_id            = aws_security_group.db[0].id
   description                  = "PostgreSQL from API security group"
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432
-  referenced_security_group_id = aws_security_group.api.id
+  referenced_security_group_id = aws_security_group.api[0].id
 }
 
 # ---------- VPC Interface Endpoints ----------
@@ -186,7 +213,7 @@ resource "aws_security_group" "vpc_endpoints" {
 
   name_prefix = "${local.naming_prefix}-vpce-"
   description = "Security group for VPC interface endpoints"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = aws_vpc.main[0].id
 
   tags = {
     Name = "${local.naming_prefix}-vpce-sg"
@@ -205,13 +232,13 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_endpoints_from_api" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  referenced_security_group_id = aws_security_group.api.id
+  referenced_security_group_id = aws_security_group.api[0].id
 }
 
 resource "aws_vpc_endpoint" "ses" {
   count = local.shared_tenancy ? 0 : 1
 
-  vpc_id              = aws_vpc.main.id
+  vpc_id              = aws_vpc.main[0].id
   service_name        = "com.amazonaws.${data.aws_region.current.region}.email"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
@@ -226,7 +253,7 @@ resource "aws_vpc_endpoint" "ses" {
 resource "aws_vpc_endpoint" "secretsmanager" {
   count = local.shared_tenancy ? 0 : 1
 
-  vpc_id              = aws_vpc.main.id
+  vpc_id              = aws_vpc.main[0].id
   service_name        = "com.amazonaws.${data.aws_region.current.region}.secretsmanager"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
