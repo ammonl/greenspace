@@ -660,6 +660,31 @@ resource "aws_iam_role_policy" "ci_terraform_resources" {
 #     repeated cycles in past applies. EC2 does not support resource-level
 #     permissions for most of these, so wildcard resource is unavoidable.
 #
+# What this policy does NOT solve — read before adding a permission here:
+#
+# This role is defined by the stack it applies, so it cannot grant itself a
+# permission it needs at plan time. Adding a statement here does not make that
+# permission available to the plan that introduces it: the policy only exists
+# after an apply, and the plan fails first. The `RefreshReads` coverage above
+# works only because it is already applied and already lists the service.
+#
+# So a new permission required at plan time — typically a data source in an
+# environment root module reaching for a service not in `RefreshReads` — must
+# be applied BEFORE the change that uses it. Two ways:
+#
+#   1. Merge the permission on its own, let it apply, then merge the consumer.
+#   2. Grant it out of band, then merge both together:
+#
+#        aws iam put-role-policy \
+#          --role-name <naming_prefix>-ci-terraform \
+#          --policy-name <distinct-temporary-name> \
+#          --policy-document '{...}'
+#
+#      Use a distinct policy name — `put-role-policy` overwrites by name, so
+#      reusing `terraform-resources-bootstrap` would silently drop every
+#      statement below. Delete the temporary policy once the apply has
+#      reconciled the permanent grant.
+#
 # Drift guards:
 #   - `iam.tftest.hcl` asserts statement and action counts stay below caps
 #     and that every action matches an allowlisted prefix.
@@ -733,10 +758,12 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
 
   # Read the shared-VPC tenancy contract published by infra-shared-db. The
   # environment stacks read these SSM parameters at plan time to place the API
-  # Lambda in the shared VPC; the read must succeed on the very first plan that
-  # introduces the data source, before the main policy grants it — hence it
-  # lives here in the permanent bootstrap policy. Scoped to the shared/network
-  # parameter path.
+  # Lambda in the shared VPC.
+  #
+  # Scoped to the shared/network parameter path rather than folded into
+  # `RefreshReads` above: that statement grants on `Resource = "*"`, and
+  # combined with the `kms:Decrypt` grant in `terraform-resources` a wildcard
+  # SSM read would expose every SecureString parameter in the account.
   statement {
     sid    = "SharedNetworkSsmRead"
     effect = "Allow"
