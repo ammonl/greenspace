@@ -10,8 +10,8 @@ the staging and production environment stacks.
 | `networking.tf`  | Dedicated VPC (gated, retirable), public/private subnets, internet gateway, VPC endpoints, shared-VPC egress-only SG |
 | `peering.tf`     | Optional VPC peering to the shared-RDS VPC (gated)         |
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
-| `ses.tf`         | SES domain identity, DKIM, configuration set               |
-| `dns.tf`         | Route 53 hosted zone, SES verification/DKIM DNS records    |
+| `ses.tf`         | SES configuration set (domain identity + DKIM owned by un17hub) |
+| `dns.tf`         | No resources (Route 53 zone + SES/DKIM records owned by un17hub) |
 | `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
 
 ## Shared-RDS connectivity

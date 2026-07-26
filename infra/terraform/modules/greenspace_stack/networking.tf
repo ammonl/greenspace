@@ -31,7 +31,7 @@ resource "aws_internet_gateway" "main" {
 # ---------- Public Subnets ----------
 
 resource "aws_subnet" "public" {
-  count = var.retire_dedicated_vpc ? 0 : length(var.public_subnet_cidrs)
+  count = local.dedicated_vpc_count == 0 ? 0 : length(var.public_subnet_cidrs)
 
   vpc_id                  = aws_vpc.main[0].id
   cidr_block              = var.public_subnet_cidrs[count.index]
@@ -71,7 +71,7 @@ resource "aws_route_table_association" "public" {
 # ---------- Private Subnets ----------
 
 resource "aws_subnet" "private" {
-  count = var.retire_dedicated_vpc ? 0 : length(var.private_subnet_cidrs)
+  count = local.dedicated_vpc_count == 0 ? 0 : length(var.private_subnet_cidrs)
 
   vpc_id            = aws_vpc.main[0].id
   cidr_block        = var.private_subnet_cidrs[count.index]

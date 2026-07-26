@@ -92,6 +92,8 @@ resource "aws_cloudwatch_log_group" "vpc_flow" {
 }
 
 data "aws_iam_policy_document" "vpc_flow_assume" {
+  count = local.dedicated_vpc_count
+
   statement {
     effect  = "Allow"
     actions = ["sts:AssumeRole"]
@@ -107,7 +109,7 @@ resource "aws_iam_role" "vpc_flow" {
   count = local.dedicated_vpc_count
 
   name               = "${local.naming_prefix}-vpc-flow-logs"
-  assume_role_policy = data.aws_iam_policy_document.vpc_flow_assume.json
+  assume_role_policy = data.aws_iam_policy_document.vpc_flow_assume[0].json
 
   tags = {
     Name = "${local.naming_prefix}-vpc-flow-logs"

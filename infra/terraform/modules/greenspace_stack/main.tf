@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.5.0"
+  # >= 1.7.0: retirement.tftest.hcl uses `override_data`, introduced in 1.7.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {

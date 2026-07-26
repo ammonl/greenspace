@@ -414,15 +414,17 @@ infra/terraform/
         ├── main.tf            Naming prefix, provider config
         ├── amplify.tf         Amplify app, branch, and domain association
         ├── api_runtime.tf     Lambda function, Function URL, EventBridge schedule
-        ├── dns.tf             Route 53 zone and records
+        ├── dns.tf             No resources (zone + records owned by un17hub)
         ├── iam.tf             IAM roles and policies
         ├── monitoring.tf      CloudWatch, KMS, Alarms, Dashboard, SNS
         ├── networking.tf      VPC, subnets, gateways (dedicated VPC gated + retirable)
         ├── outputs.tf         Module outputs
-        ├── ses.tf             SES identity, DKIM, config set
+        ├── peering.tf         Optional VPC peering to the shared-RDS VPC (gated)
+        ├── ses.tf             SES configuration set (identity + DKIM owned by un17hub)
         ├── variables.tf       Input variables
         ├── iam.tftest.hcl     Least-privilege IAM validation tests
-        └── retirement.tftest.hcl  Dedicated VPC retirement gate tests
+        ├── iam_bootstrap.tftest.hcl  CI bootstrap policy drift guards
+        └── retirement.tftest.hcl    Dedicated VPC retirement gate tests
 ```
 
 ### CI/CD Pipeline

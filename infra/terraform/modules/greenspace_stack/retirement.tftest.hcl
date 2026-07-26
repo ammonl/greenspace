@@ -57,6 +57,23 @@ run "retire_requires_shared_tenancy" {
   }
 
   expect_failures = [terraform_data.retire_dedicated_vpc_gate]
+
+  # The precondition failure above is expected to block apply, but it does not
+  # stop `terraform plan` from resolving the rest of the graph — so this is the
+  # scenario that actually matters for `dedicated_vpc_count`'s AND-gate: if
+  # `retire_dedicated_vpc = true` alone tore down the subnets (as it did before
+  # this was fixed — see #481 review), the Lambda would be left with an empty
+  # `vpc_config.subnet_ids` even though the precondition also fails. Both must
+  # hold: the plan errors out AND the network path stays intact.
+  assert {
+    condition     = length(aws_subnet.private) == length(var.private_subnet_cidrs)
+    error_message = "Dedicated-VPC subnets must not be destroyed by retire_dedicated_vpc alone — dedicated_vpc_count requires shared_tenancy too, so misconfiguration can't strand the Lambda even though the precondition also fails this plan."
+  }
+
+  assert {
+    condition     = length(local.lambda_subnet_ids) == length(var.private_subnet_cidrs)
+    error_message = "The Lambda must keep a non-empty vpc_config.subnet_ids even when retire_dedicated_vpc is set without shared_vpc_id."
+  }
 }
 
 run "dedicated_vpc_created_by_default" {
@@ -119,6 +136,21 @@ run "retirement_clears_dedicated_vpc_resources" {
   }
 
   assert {
+    condition     = length(aws_internet_gateway.main) == 0
+    error_message = "The internet gateway must not be planned once retire_dedicated_vpc is true."
+  }
+
+  assert {
+    condition     = length(aws_route_table.public) == 0 && length(aws_route_table.private) == 0
+    error_message = "Dedicated-VPC route tables must not be planned once retire_dedicated_vpc is true."
+  }
+
+  assert {
+    condition     = length(aws_security_group.api) == 0
+    error_message = "The dedicated-VPC API security group must not be planned once retire_dedicated_vpc is true."
+  }
+
+  assert {
     condition     = length(aws_security_group.db) == 0
     error_message = "The dedicated-VPC DB security group must not be planned once retire_dedicated_vpc is true."
   }
@@ -141,5 +173,10 @@ run "retirement_clears_dedicated_vpc_resources" {
   assert {
     condition     = length(aws_security_group.api_shared) == 1
     error_message = "The API Lambda must still resolve a security group (the shared-VPC egress-only SG) once retired."
+  }
+
+  assert {
+    condition     = length(local.lambda_subnet_ids) == length(var.shared_private_subnet_ids)
+    error_message = "The API Lambda must keep a non-empty vpc_config.subnet_ids (the shared VPC's subnets) once the dedicated VPC is retired."
   }
 }
