@@ -1,17 +1,17 @@
 # ---------- Networking ----------
 
 output "vpc_id" {
-  description = "ID of the VPC."
-  value       = aws_vpc.main.id
+  description = "ID of the dedicated VPC. Null once `retire_dedicated_vpc` has destroyed it."
+  value       = try(aws_vpc.main[0].id, null)
 }
 
 output "public_subnet_ids" {
-  description = "IDs of the public subnets."
+  description = "IDs of the public subnets. Empty once `retire_dedicated_vpc` has destroyed them."
   value       = aws_subnet.public[*].id
 }
 
 output "private_subnet_ids" {
-  description = "IDs of the private subnets."
+  description = "IDs of the private subnets. Empty once `retire_dedicated_vpc` has destroyed them."
   value       = aws_subnet.private[*].id
 }
 
@@ -21,13 +21,13 @@ output "api_security_group_id" {
 }
 
 output "db_security_group_id" {
-  description = "Security group ID for the RDS database."
-  value       = aws_security_group.db.id
+  description = "Security group ID for the RDS database. Null once `retire_dedicated_vpc` has destroyed it."
+  value       = try(aws_security_group.db[0].id, null)
 }
 
 output "vpc_cidr" {
-  description = "CIDR block of the VPC. The shared-db side consumes this when adding the accepter-side route and RDS SG ingress for the peering connection. Account ID and region are not exposed; the shared-db side derives them from its own provider under the same-account assumption."
-  value       = aws_vpc.main.cidr_block
+  description = "CIDR block of the dedicated VPC. The shared-db side consumes this when adding the accepter-side route and RDS SG ingress for the peering connection. Null once `retire_dedicated_vpc` has destroyed the VPC (the peering it served is torn down first, in shared-tenancy mode). Account ID and region are not exposed; the shared-db side derives them from its own provider under the same-account assumption."
+  value       = try(aws_vpc.main[0].cidr_block, null)
 }
 
 output "shared_db_peering_connection_id" {

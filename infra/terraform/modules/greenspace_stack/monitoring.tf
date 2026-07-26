@@ -71,8 +71,15 @@ resource "aws_cloudwatch_log_group" "api" {
 }
 
 # ---------- VPC Flow Logs ----------
+#
+# Exist only to serve the dedicated VPC, so they're destroyed alongside it on
+# retirement. `aws_kms_key.logs` is NOT gated here — it also encrypts the API
+# log group and (when alarms are enabled) the SNS topic, both of which stay
+# alive regardless of dedicated-VPC retirement.
 
 resource "aws_cloudwatch_log_group" "vpc_flow" {
+  count = local.dedicated_vpc_count
+
   name              = "/${local.naming_prefix}/vpc-flow"
   retention_in_days = var.log_retention_days
   kms_key_id        = aws_kms_key.logs.arn
@@ -85,6 +92,8 @@ resource "aws_cloudwatch_log_group" "vpc_flow" {
 }
 
 data "aws_iam_policy_document" "vpc_flow_assume" {
+  count = local.dedicated_vpc_count
+
   statement {
     effect  = "Allow"
     actions = ["sts:AssumeRole"]
@@ -97,8 +106,10 @@ data "aws_iam_policy_document" "vpc_flow_assume" {
 }
 
 resource "aws_iam_role" "vpc_flow" {
+  count = local.dedicated_vpc_count
+
   name               = "${local.naming_prefix}-vpc-flow-logs"
-  assume_role_policy = data.aws_iam_policy_document.vpc_flow_assume.json
+  assume_role_policy = data.aws_iam_policy_document.vpc_flow_assume[0].json
 
   tags = {
     Name = "${local.naming_prefix}-vpc-flow-logs"
@@ -106,6 +117,8 @@ resource "aws_iam_role" "vpc_flow" {
 }
 
 data "aws_iam_policy_document" "vpc_flow_permissions" {
+  count = local.dedicated_vpc_count
+
   statement {
     effect = "Allow"
     actions = [
@@ -114,21 +127,25 @@ data "aws_iam_policy_document" "vpc_flow_permissions" {
       "logs:DescribeLogGroups",
       "logs:DescribeLogStreams",
     ]
-    resources = ["${aws_cloudwatch_log_group.vpc_flow.arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.vpc_flow[0].arn}:*"]
   }
 }
 
 resource "aws_iam_role_policy" "vpc_flow" {
+  count = local.dedicated_vpc_count
+
   name   = "flow-log-write"
-  role   = aws_iam_role.vpc_flow.id
-  policy = data.aws_iam_policy_document.vpc_flow_permissions.json
+  role   = aws_iam_role.vpc_flow[0].id
+  policy = data.aws_iam_policy_document.vpc_flow_permissions[0].json
 }
 
 resource "aws_flow_log" "vpc" {
-  vpc_id          = aws_vpc.main.id
+  count = local.dedicated_vpc_count
+
+  vpc_id          = aws_vpc.main[0].id
   traffic_type    = "ALL"
-  log_destination = aws_cloudwatch_log_group.vpc_flow.arn
-  iam_role_arn    = aws_iam_role.vpc_flow.arn
+  log_destination = aws_cloudwatch_log_group.vpc_flow[0].arn
+  iam_role_arn    = aws_iam_role.vpc_flow[0].arn
 
   tags = {
     Name = "${local.naming_prefix}-vpc-flow"

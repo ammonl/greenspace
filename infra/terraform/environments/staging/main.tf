@@ -71,6 +71,12 @@ module "greenspace_stack" {
   shared_db_vpc_id   = "vpc-908203f9"
   shared_db_vpc_cidr = "172.31.0.0/16"
 
+  # Retirement (#472): staging's shared-tenancy move (#471) has validated, so
+  # the dedicated VPC (10.0.0.0/16) and everything that existed only to serve
+  # it are destroyed. This is a one-way door — see the module README before
+  # ever reverting it.
+  retire_dedicated_vpc = true
+
   enable_alarms    = false
   enable_dashboard = false
 
