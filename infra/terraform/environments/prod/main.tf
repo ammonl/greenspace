@@ -34,6 +34,16 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
+# Shared-VPC tenancy contract published by infra-shared-db (infra-shared-db#82).
+# Consumed at plan time so the shared VPC / subnet IDs are never hardcoded.
+data "aws_ssm_parameter" "shared_vpc_id" {
+  name = "/shared/network/vpc-id"
+}
+
+data "aws_ssm_parameter" "shared_private_subnet_ids" {
+  name = "/shared/network/private-subnet-ids"
+}
+
 module "greenspace_stack" {
   source             = "../../modules/greenspace_stack"
   environment        = "prod"
@@ -52,6 +62,14 @@ module "greenspace_stack" {
   ses_sender_domain  = "un17hub.com"
   ses_reply_to_email = "elise7284@gmail.com"
 
+  # Shared-tenancy mode: the API Lambda runs in the shared default VPC. The
+  # dedicated VPC (10.1.0.0/16) stays in place, dormant, as the rollback net.
+  shared_vpc_id             = nonsensitive(data.aws_ssm_parameter.shared_vpc_id.value)
+  shared_private_subnet_ids = split(",", nonsensitive(data.aws_ssm_parameter.shared_private_subnet_ids.value))
+
+  # Peering inputs are retained but dormant: the module tears the peering down
+  # while in shared-tenancy mode. They stay set so reverting the two shared_*
+  # inputs above recreates the peering and restores DB connectivity in one step.
   shared_db_vpc_id   = "vpc-908203f9"
   shared_db_vpc_cidr = "172.31.0.0/16"
 

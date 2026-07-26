@@ -7,7 +7,7 @@ the staging and production environment stacks.
 
 | File             | Resources                                                  |
 |------------------|------------------------------------------------------------|
-| `networking.tf`  | VPC, public/private subnets, internet gateway, VPC endpoints |
+| `networking.tf`  | VPC, public/private subnets, internet gateway, VPC endpoints, shared-VPC egress-only SG |
 | `peering.tf`     | Optional VPC peering to the shared-RDS VPC (gated)         |
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES domain identity, DKIM, configuration set               |
@@ -18,9 +18,10 @@ the staging and production environment stacks.
 
 `peering.tf` provides an opt-in private path from the API Lambda to the
 shared RDS instance owned by `ammonlarson/infra-shared-db`. The peering is
-gated on `shared_db_vpc_id`: when null (the default), no peering resources
-are created. See `docs/adr/0001-shared-rds-connectivity.md` for the full
-context.
+gated on `shared_db_vpc_id` **and** on not being in shared-tenancy mode: when
+`shared_db_vpc_id` is null (the default) or `shared_vpc_id` is set, no peering
+resources are created (see [Shared-VPC tenancy](#shared-vpc-tenancy)). See
+`docs/adr/0001-shared-rds-connectivity.md` for the full context.
 
 To activate, set both inputs in the environment config:
 
@@ -32,6 +33,54 @@ shared_db_vpc_cidr = "172.31.0.0/16" # CIDR of that VPC
 The shared-db side must independently add its accepter-side route, RDS SG
 ingress from the Greenspace VPC CIDR, and
 `accepter.allow_remote_vpc_dns_resolution = true` for traffic to flow.
+
+## Shared-VPC tenancy
+
+When `shared_vpc_id` (and `shared_private_subnet_ids`) are set, the API Lambda
+runs **inside the shared default VPC** owned by `ammonlarson/infra-shared-db`
+instead of this environment's dedicated VPC. This is the account-wide VPC
+consolidation: greenspace has no dedicated database, so it is a networking-only
+move.
+
+In this mode the module:
+
+- attaches the Lambda's `vpc_config` to `shared_private_subnet_ids` with a new
+  egress-only security group (`aws_security_group.api_shared`) created in the
+  shared VPC;
+- does **not** create the dedicated VPC interface endpoints (SES + Secrets
+  Manager) — those services are reached over the shared NAT gateway;
+- tears down the shared-db peering — the shared RDS lives in the same VPC, so
+  DB traffic stays internal and its security group already admits the shared VPC
+  CIDR. Keep `shared_db_vpc_id`/`shared_db_vpc_cidr` **set** (not removed): the
+  peering is gated off by tenancy mode, not by dropping the inputs, so that
+  rollback recreates it in one step.
+
+The dedicated VPC and subnets are left in place, dormant, as the rollback net.
+Consume the shared VPC / subnet IDs from SSM at plan time — do not hardcode:
+
+```hcl
+data "aws_ssm_parameter" "shared_vpc_id" {
+  name = "/shared/network/vpc-id"
+}
+data "aws_ssm_parameter" "shared_private_subnet_ids" {
+  name = "/shared/network/private-subnet-ids"
+}
+
+module "greenspace_stack" {
+  # ...
+  shared_vpc_id             = nonsensitive(data.aws_ssm_parameter.shared_vpc_id.value)
+  shared_private_subnet_ids = split(",", nonsensitive(data.aws_ssm_parameter.shared_private_subnet_ids.value))
+}
+```
+
+The CI Terraform (plan) role reads these parameters via a scoped
+`ssm:GetParameter`/`GetParameters` grant on
+`arn:aws:ssm:*:*:parameter/shared/network/*` in the bootstrap policy.
+
+To roll back, remove the two `shared_*` inputs: the Lambda moves back into the
+dedicated VPC and the interface endpoints **and the shared-db peering** recreate
+(the peering inputs were retained, so DB connectivity is restored in the same
+apply).
 
 ## Monitoring & seasonal alarms
 
@@ -94,6 +143,8 @@ its records propagate.
 | `ses_reply_to_email`          | Default Reply-To (defaults to `elise7284@gmail.com`) |
 | `shared_db_vpc_id`            | Shared-RDS VPC ID; null disables peering             |
 | `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |
+| `shared_vpc_id`               | Shared default VPC ID; non-null runs the Lambda in shared-tenancy mode |
+| `shared_private_subnet_ids`   | Shared VPC private subnet IDs (required in tenancy mode) |
 | `enable_alarms`               | Seasonal toggle for SNS topic + all CloudWatch alarms |
 | `enable_dashboard`            | Toggle for the CloudWatch operational dashboard      |
 

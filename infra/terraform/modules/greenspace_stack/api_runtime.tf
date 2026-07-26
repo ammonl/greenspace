@@ -11,8 +11,8 @@ resource "aws_lambda_function" "api" {
   timeout     = var.lambda_timeout
 
   vpc_config {
-    subnet_ids         = aws_subnet.private[*].id
-    security_group_ids = [aws_security_group.api.id]
+    subnet_ids         = local.lambda_subnet_ids
+    security_group_ids = local.lambda_security_group_ids
   }
 
   environment {

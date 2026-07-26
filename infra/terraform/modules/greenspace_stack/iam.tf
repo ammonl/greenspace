@@ -730,6 +730,24 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
     ]
     resources = ["*"]
   }
+
+  # Read the shared-VPC tenancy contract published by infra-shared-db. The
+  # environment stacks read these SSM parameters at plan time to place the API
+  # Lambda in the shared VPC; the read must succeed on the very first plan that
+  # introduces the data source, before the main policy grants it — hence it
+  # lives here in the permanent bootstrap policy. Scoped to the shared/network
+  # parameter path.
+  statement {
+    sid    = "SharedNetworkSsmRead"
+    effect = "Allow"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+    ]
+    resources = [
+      "arn:aws:ssm:*:*:parameter/shared/network/*",
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "ci_terraform_bootstrap" {

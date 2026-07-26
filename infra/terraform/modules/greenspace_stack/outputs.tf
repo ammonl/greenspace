@@ -16,8 +16,8 @@ output "private_subnet_ids" {
 }
 
 output "api_security_group_id" {
-  description = "Security group ID for API Lambda functions."
-  value       = aws_security_group.api.id
+  description = "Security group ID the API Lambda actually runs behind: the shared-VPC egress-only SG in shared-tenancy mode, otherwise the dedicated-VPC API SG."
+  value       = local.lambda_security_group_ids[0]
 }
 
 output "db_security_group_id" {
@@ -31,7 +31,7 @@ output "vpc_cidr" {
 }
 
 output "shared_db_peering_connection_id" {
-  description = "ID of the VPC peering connection to the shared-RDS VPC. Null when `shared_db_vpc_id` is not set."
+  description = "ID of the VPC peering connection to the shared-RDS VPC. Null when `shared_db_vpc_id` is not set or while in shared-tenancy mode (peering is torn down)."
   value       = try(aws_vpc_peering_connection.shared_db[0].id, null)
 }
 
