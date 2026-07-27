@@ -325,15 +325,61 @@ jobs:
         working-directory: infra/terraform/environments/staging
         run: terraform apply -input=false -no-color tfplan
 
+  verify-staging:
+    name: "Verify (staging)"
+    needs: apply-staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get Function URL
+        id: url
+        run: |
+          URL=$(aws lambda get-function-url-config \
+            --function-name "${{ vars.API_FUNCTION_NAME }}" \
+            --query 'FunctionUrl' --output text)
+          echo "api_url=$URL" >> "$GITHUB_OUTPUT"
+
+      # /public/status executes real DB reads, so a 200 here proves the
+      # applied stack end to end (Lambda → VPC/networking → RDS), not just
+      # that the function is reachable. Retries cover ENI/DNS settling
+      # right after a networking apply.
+      - name: Check staging /public/status
+        run: |
+          ATTEMPTS=6
+          for i in $(seq 1 "$ATTEMPTS"); do
+            STATUS=$(curl -s -o /tmp/status-response.json -w '%{http_code}' \
+              "${{ steps.url.outputs.api_url }}public/status" || true)
+            STATUS=${STATUS:-000}
+            echo "Attempt $i/$ATTEMPTS: HTTP $STATUS"
+            if [ "$STATUS" = "200" ] && jq -e '.serverTime' /tmp/status-response.json > /dev/null 2>&1; then
+              echo "Staging is healthy:"
+              cat /tmp/status-response.json
+              exit 0
+            fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              sleep 10
+            fi
+          done
+          echo "::error::Staging /public/status check failed after $ATTEMPTS attempts (last HTTP $STATUS)"
+          cat /tmp/status-response.json || true
+          exit 1
+
   apply-prod:
     name: "Apply (prod)"
-    needs: [detect-staging, detect-prod, apply-staging]
+    needs: [detect-staging, detect-prod, apply-staging, verify-staging]
     if: >-
       always() &&
       needs.detect-prod.outputs.has_changes == 'true' &&
       needs.detect-prod.result == 'success' &&
       needs.detect-staging.result == 'success' &&
-      (needs.apply-staging.result == 'success' || needs.apply-staging.result == 'skipped')
+      (needs.apply-staging.result == 'skipped' ||
+      (needs.apply-staging.result == 'success' && needs.verify-staging.result == 'success'))
     runs-on: ubuntu-latest
     environment: production
     concurrency:

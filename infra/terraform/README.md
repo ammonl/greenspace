@@ -127,8 +127,15 @@ On push to `main` (or manual dispatch from `main`), the deploy pipeline runs:
    changes are detected, downstream apply jobs are skipped.
 2. **Apply staging** (`apply-staging`) — auto-applies when staging has changes.
    Uses the `staging` GitHub environment.
-3. **Apply production** (`apply-prod`) — runs automatically after staging
-   succeeds (or is skipped). Uses the `production` GitHub environment.
+3. **Verify staging** (`verify-staging`) — after a staging apply, fetches the
+   staging Lambda Function URL and polls `GET /public/status` until it returns
+   HTTP 200 with a valid body. The endpoint performs real database reads, so
+   this proves the applied stack is healthy end to end (Lambda → networking →
+   RDS), not just that the apply didn't error. Skipped when staging has no
+   changes.
+4. **Apply production** (`apply-prod`) — runs after staging is applied *and*
+   verified healthy (or when staging is skipped). Uses the `production` GitHub
+   environment.
 
 Concurrency guards (`terraform-deploy-staging`, `terraform-deploy-prod`)
 prevent parallel applies to the same environment.
@@ -244,7 +251,8 @@ with "Do not require this check to have run" so non-infra PRs are not blocked.
   artifacts from the workflow run to review what will be applied.
 - **Apply runs**: check the `Apply (staging)` and `Apply (prod)` job logs
   under the Actions tab for the merge commit on `main`.
-- **Prod apply**: the `Apply (prod)` job runs automatically after staging
-  succeeds (or is skipped when staging has no changes).
+- **Prod apply**: the `Apply (prod)` job runs after the staging apply and the
+  `Verify (staging)` health check both succeed (or when staging has no changes
+  and both are skipped).
 - **No-change plans**: when `terraform plan` detects no changes, the detect
   job outputs `has_changes=false` and the apply job is skipped entirely.

@@ -109,7 +109,7 @@ Inline styles only — no Tailwind, no CSS modules. Shared visual constants (e.g
 ### Infra & deploy
 
 - `deploy.yml` triggers on `apps/api/**` or `packages/shared/**` changes to main: bundles via esbuild, deploys to staging Lambda, smoke-tests `/health`, then promotes to prod (gated by GitHub `production` environment protection).
-- `terraform.yml` triggers on `infra/terraform/**`; staging applies first, prod after.
+- `terraform.yml` triggers on `infra/terraform/**`; staging applies first and is health-checked via `GET /public/status`, prod after.
 - `deploy-web.yml` handles the Amplify-hosted Next.js app.
 - `drift-detection.yml` runs daily and opens a GitHub issue if `terraform plan` shows drift.
 - All AWS auth uses GitHub OIDC role assumption — no long-lived keys.
