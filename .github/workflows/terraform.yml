@@ -26,10 +26,7 @@ jobs:
   # Runs only the module's fully self-contained *.tftest.hcl files — the ones
   # that mock the AWS provider (skip_credentials_validation + override_data on
   # aws_caller_identity/aws_region) so they need no OIDC role and are safe to
-  # run on fork PRs. `iam.tftest.hcl` is deliberately excluded: it has a
-  # separate, pre-existing gap (missing required variable, and no provider
-  # mock, so it also needs real credentials) unrelated to this workflow step —
-  # tracked as a follow-up rather than fixed here.
+  # run on fork PRs.
 
   test-module:
     name: "Test (module)"
@@ -49,7 +46,7 @@ jobs:
 
       - name: Terraform test
         working-directory: infra/terraform/modules/greenspace_stack
-        run: terraform test -no-color -filter=retirement.tftest.hcl -filter=iam_bootstrap.tftest.hcl
+        run: terraform test -no-color -filter=retirement.tftest.hcl -filter=iam_bootstrap.tftest.hcl -filter=iam.tftest.hcl
 
   # --------------- Pull Request: plan per environment ---------------
 
