@@ -354,7 +354,8 @@ jobs:
           ATTEMPTS=6
           for i in $(seq 1 "$ATTEMPTS"); do
             STATUS=$(curl -s -o /tmp/status-response.json -w '%{http_code}' \
-              "${{ steps.url.outputs.api_url }}public/status" || echo "000")
+              "${{ steps.url.outputs.api_url }}public/status" || true)
+            STATUS=${STATUS:-000}
             echo "Attempt $i/$ATTEMPTS: HTTP $STATUS"
             if [ "$STATUS" = "200" ] && jq -e '.serverTime' /tmp/status-response.json > /dev/null 2>&1; then
               echo "Staging is healthy:"
