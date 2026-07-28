@@ -28,6 +28,24 @@ infra/terraform/
   - `environment=<env>`
   - `managed_by=terraform`
 
+## Provider Versions
+
+Every Terraform directory here — `bootstrap/`, both `environments/`, and
+`modules/greenspace_stack/` — commits its own `.terraform.lock.hcl`, so
+provider resolution is pinned and any bump shows up as a reviewable diff
+rather than happening silently on the next `terraform init`. All four are
+currently on `hashicorp/aws` 6.34.0; keep them in step so the module's
+offline `terraform test` run exercises the same provider version that
+`plan` and `apply` use.
+
+The environment stacks and the shared module require `aws >= 6.0`: the
+module reads `data.aws_region.current.region`, which the v5 provider does
+not expose (it spells that attribute `name`). `bootstrap/` composes no
+modules and uses no v6-only attributes, so it stays on `>= 5.0`.
+
+To bump a provider, run `terraform init -upgrade` in each directory and
+commit the resulting lock files together.
+
 ## State Backend
 
 Remote state uses an S3 bucket with DynamoDB locking.

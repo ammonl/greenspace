@@ -1,10 +1,13 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  # >= 6.0: inherited from the greenspace_stack module, which depends on
+  # v6-only provider attributes. Declaring it here too keeps this constraint
+  # from understating what the environment actually needs.
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = ">= 6.0"
     }
   }
 
