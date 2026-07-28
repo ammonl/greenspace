@@ -113,6 +113,7 @@ The API runs as an AWS Lambda function with a public Function URL.
 - **Build**: `npm run bundle --workspace=@greenspace/api` produces a single-file ESM bundle via esbuild.
 - **Deploy workflow** (`deploy.yml`): Triggers on push to `main` when `apps/api/**` or `packages/shared/**` change. Builds the bundle, deploys to staging Lambda, runs a health check, then promotes to production (gated by the `production` environment protection rule).
 - **Lambda Function URL**: Terraform provisions the Lambda function and Function URL. The `api_base_url` output contains the public endpoint for each environment.
+- **No Lambda versions**: deploys update `$LATEST` only — the Function URL and the EventBridge schedule both invoke the unqualified function, and there is no alias or provisioned concurrency to serve a numbered version. Roll back by reverting the commit on `main` (or redeploying the previous artifact onto `$LATEST`); see [`docs/runbooks/launch-checklist.md`](docs/runbooks/launch-checklist.md).
 
 ### GitHub environment variables (deploy)
 
