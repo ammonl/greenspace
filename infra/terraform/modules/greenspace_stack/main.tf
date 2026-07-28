@@ -2,10 +2,14 @@ terraform {
   # >= 1.7.0: retirement.tftest.hcl uses `override_data`, introduced in 1.7.
   required_version = ">= 1.7.0"
 
+  # >= 6.0: iam.tf, monitoring.tf, and networking.tf read
+  # `data.aws_region.current.region`, which the v5 provider does not expose (it
+  # spells that attribute `name`). Against v5 the module fails `terraform
+  # validate` outright, so the floor has to be v6 to be honest.
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = ">= 6.0"
     }
   }
 }
