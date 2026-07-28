@@ -17,7 +17,7 @@ the staging and production environment stacks.
 ## Shared-RDS connectivity
 
 `peering.tf` provides an opt-in private path from the API Lambda to the
-shared RDS instance owned by `ammonlarson/infra-shared-db`. The peering is
+shared RDS instance owned by `ammonl/un17-infra-shared`. The peering is
 gated on `shared_db_vpc_id` **and** on not being in shared-tenancy mode: when
 `shared_db_vpc_id` is null (the default) or `shared_vpc_id` is set, no peering
 resources are created (see [Shared-VPC tenancy](#shared-vpc-tenancy)). See
@@ -37,7 +37,7 @@ ingress from the Greenspace VPC CIDR, and
 ## Shared-VPC tenancy
 
 When `shared_vpc_id` (and `shared_private_subnet_ids`) are set, the API Lambda
-runs **inside the shared default VPC** owned by `ammonlarson/infra-shared-db`
+runs **inside the shared default VPC** owned by `ammonl/un17-infra-shared`
 instead of this environment's dedicated VPC. This is the account-wide VPC
 consolidation: greenspace has no dedicated database, so it is a networking-only
 move.

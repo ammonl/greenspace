@@ -1,7 +1,7 @@
 # ---------- Shared-RDS VPC Peering ----------
 #
 # Provides a private network path from the API Lambda (in this VPC's private
-# subnets) to the shared RDS instance owned by `ammonlarson/infra-shared-db`.
+# subnets) to the shared RDS instance owned by `ammonl/un17-infra-shared`.
 # The shared RDS lives in that account's default VPC; we create a peering
 # connection per Greenspace environment so staging and prod fail
 # independently.

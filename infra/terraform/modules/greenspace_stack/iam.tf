@@ -756,7 +756,7 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
     resources = ["*"]
   }
 
-  # Read the shared-VPC tenancy contract published by infra-shared-db. The
+  # Read the shared-VPC tenancy contract published by un17-infra-shared. The
   # environment stacks read these SSM parameters at plan time to place the API
   # Lambda in the shared VPC.
   #

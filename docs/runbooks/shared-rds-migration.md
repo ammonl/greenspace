@@ -4,7 +4,7 @@
 
 This runbook covers moving the Greenspace schema and data from the dedicated
 per-environment RDS instances onto the centralized shared RDS owned by
-`ammonlarson/infra-shared-db`. It is the data-preparation step. The
+`ammonl/un17-infra-shared`. It is the data-preparation step. The
 application cutover (env var flip, Lambda redeploy, smoke tests) is tracked
 separately in #340 and uses this runbook as a prerequisite.
 
@@ -47,7 +47,7 @@ eyes on Phase 5 diffs before signalling "good to cut over" to #340.
 ## Prerequisites
 
 - Operator workstation IP `/32` is currently in `allowed_ingress_cidrs` on
-  the shared RDS (set in `infra-shared-db/terraform.tfvars`).
+  the shared RDS (set in `un17-infra-shared/terraform.tfvars`).
 - `psql` and `pg_dump`/`pg_restore` (Postgres 16 client) available locally.
 - AWS CLI logged in with permission to:
   - read `greenspace-<env>-2026-db-credentials` secrets (dedicated RDS
@@ -55,7 +55,7 @@ eyes on Phase 5 diffs before signalling "good to cut over" to #340.
   - read `rds/shared/greenspace_<env>` secrets (shared-db per-project
     credentials).
   - create RDS manual snapshots on `greenspace-<env>-2026-postgres`.
-- Both shared-db projects exist in state (i.e. `infra-shared-db`
+- Both shared-db projects exist in state (i.e. `un17-infra-shared`
   PR #15 merged and applied locally per `ADDING_A_PROJECT.md`).
 - Source databases are quiet enough for the export to be consistent. For
   production this means running this immediately before #340 cutover, after
@@ -385,7 +385,7 @@ Notes:
   only emits COPY and `setval()` (no UPDATE, no DELETE, no TRUNCATE), no
   trigger bypass is required. We deliberately omit `--disable-triggers`
   here: it would emit `ALTER TABLE ... DISABLE TRIGGER` which requires
-  table-owner privilege, and depending on how `infra-shared-db` provisions
+  table-owner privilege, and depending on how `un17-infra-shared` provisions
   ownership the `greenspace_prod_app` role may or may not own the tables
   it created in Phase 2.
 - Sequences are reset by `setval` calls embedded in the data section of the
@@ -589,7 +589,7 @@ records successful migrations. There is no operator-friendly CLI for
 but isn't wired to a script.
 
 Preferred recovery: ask the shared-db operator to drop and recreate the
-project database via `infra-shared-db` (taint + apply on the target
+project database via `un17-infra-shared` (taint + apply on the target
 project module). Roles, secrets, and ownership stay intact, the database
 comes back empty, and Phase 2 re-runs cleanly. This is the path of least
 surprise because it doesn't depend on what privilege the project app role
@@ -667,5 +667,5 @@ See `backup-restore.md` for the full restore procedure.
 - Dedicated RDS Terraform:
   `infra/terraform/modules/greenspace_stack/database.tf`.
 - Backup/restore base runbook: `docs/runbooks/backup-restore.md`.
-- Shared-db operator docs: `infra-shared-db/ADDING_A_PROJECT.md`,
-  `infra-shared-db/README.md`.
+- Shared-db operator docs: `un17-infra-shared/ADDING_A_PROJECT.md`,
+  `un17-infra-shared/README.md`.
