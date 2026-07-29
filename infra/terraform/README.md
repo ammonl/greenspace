@@ -53,9 +53,16 @@ commit the resulting lock files together.
 
 ### Enforcement
 
-The `Lock check` job in `.github/workflows/terraform.yml` enforces the
-convention on every PR touching `infra/terraform/**`. It needs no AWS
-credentials, so it also runs on fork PRs.
+The `Lock check` job in `.github/workflows/ci.yml` enforces the convention.
+It needs no AWS credentials, so it also runs on fork PRs.
+
+It lives in the CI workflow rather than the Terraform one deliberately. The
+Terraform workflow is filtered to `infra/terraform/**`, and a required status
+check whose workflow never triggers leaves a PR sitting at *"Expected —
+Waiting for status to be reported"* forever. To be requireable in branch
+protection, the job has to run on every PR and do the filtering itself: its
+first step diffs the PR against its base and, when nothing under
+`infra/terraform` changed, skips the remaining steps and reports success.
 
 The directories it checks are discovered, not listed: every directory under
 `infra/terraform` whose `*.tf` files declare `required_providers`. Adding a
@@ -179,11 +186,6 @@ and per-environment plan jobs in parallel:
 - **Test (module)** (`test-module`) — runs the module's self-contained
   `*.tftest.hcl` files, which mock the AWS provider. No AWS credentials
   required.
-- **Lock check** (`lock-check`) — verifies every committed
-  `.terraform.lock.hcl` is complete, records the provider constraints its
-  configuration declares, and pins the same provider versions as the other
-  directories. No AWS credentials required. See *Provider Versions →
-  Enforcement* above.
 - **Plan (staging)** / **Plan (prod)** — each environment runs its own plan:
   1. Authenticate to AWS via OIDC using the environment-specific role.
   2. `terraform init` with the real S3 backend.
@@ -197,10 +199,11 @@ Fork PRs receive no AWS credentials. The `validate-fork` job runs:
 1. `terraform fmt -check -recursive` across all Terraform files.
 2. Per environment: `terraform init -backend=false` and `terraform validate`.
 
-`Test (module)` and `Lock check` need no credentials either, so both run on
-fork PRs as well. Note that `validate-fork` is the only job in this workflow
-that runs `terraform fmt`; on internal PRs the format check comes from CI's
-`infra-checks` job instead.
+`Test (module)` needs no credentials either, so it runs on fork PRs as well.
+Note that `validate-fork` is the only job in this workflow that runs
+`terraform fmt`; on internal PRs the format check comes from CI's
+`infra-checks` job instead. The provider lock guard lives in CI too — see
+*Provider Versions → Enforcement* above.
 
 #### Merge to main / workflow dispatch
 
@@ -318,17 +321,19 @@ protection rule:
 | --------- | ----------------- | ---------------------------------------- |
 | CI        | `infra-checks`    | `terraform fmt` + `validate` (backend-disabled) |
 | CI        | `app-checks`      | Lint, test, build for application code   |
-| Terraform | `Lock check`      | Provider lock files complete and in step |
+| CI        | `Lock check`      | Provider lock files complete and in step |
 
-`Lock check` runs on all PRs that touch `infra/terraform/**` and requires no
-AWS credentials. Because the Terraform workflow only triggers on
-`infra/terraform/**` path changes, configure it in branch protection with "Do
-not require this check to have run" so non-infra PRs are not blocked. Until it
-is added to the branch protection rule the job reports but blocks nothing —
-the workflow itself does not gate the apply jobs on it.
+All three live in the CI workflow, which has no path filter, so each reports
+on every PR and is safe to require. Do **not** require a check from the
+Terraform workflow: that workflow only triggers on `infra/terraform/**`, so on
+any other PR its checks never report and the PR is blocked indefinitely at
+*"Expected — Waiting for status to be reported"*. There is no per-check
+"treat as passed if it never ran" option in either rulesets or classic branch
+protection — the only fix is for the job to always run, which is why
+`Lock check` filters internally instead.
 
-The format check comes from CI's `infra-checks`, which runs on every PR.
-There is no `Format Check` job in the Terraform workflow.
+Until `Lock check` is added to the branch protection rule it reports but
+blocks nothing; nothing in the workflows gates the apply jobs on it.
 
 #### How to verify
 
