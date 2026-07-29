@@ -136,11 +136,11 @@ Four workflows handle CI, infrastructure, deployment, and drift detection:
 
 ### Pull requests (internal)
 
-A format check and per-environment plan jobs run in parallel. The `Format Check` job runs `terraform fmt -check -recursive` and blocks merge when formatting is invalid. Each environment gets its own plan job with output uploaded as a CI artifact.
+A format check, a provider lock check, and per-environment plan jobs run in parallel. The `Format Check` job runs `terraform fmt -check -recursive` and blocks merge when formatting is invalid. The `Lock check` job verifies every committed `.terraform.lock.hcl` is complete, agrees with its configuration, and pins the same `hashicorp/aws` version as the other Terraform directories. Each environment gets its own plan job with output uploaded as a CI artifact.
 
 ### Pull requests (forks)
 
-Fork PRs receive no AWS credentials. The workflow falls back to backend-disabled `terraform fmt` + `validate` only.
+Fork PRs receive no AWS credentials. The workflow falls back to backend-disabled `terraform fmt` + `validate`, plus the credential-free module test and lock check.
 
 ### Merge to main
 
@@ -168,8 +168,9 @@ These checks should be required in the `main` branch protection rule:
 | CI        | `app-checks`      | Lint, test, build for application code          |
 | CI        | `infra-checks`    | `terraform fmt` + `validate` (backend-disabled) |
 | Terraform | `Format Check`    | `terraform fmt -check -recursive` on infra changes |
+| Terraform | `Lock check`      | Provider lock files complete and in step        |
 
-The Terraform `Format Check` only triggers on `infra/terraform/**` changes. Configure it in branch protection with "Do not require this check to have run" so non-infra PRs are not blocked.
+The Terraform `Format Check` and `Lock check` only trigger on `infra/terraform/**` changes. Configure them in branch protection with "Do not require this check to have run" so non-infra PRs are not blocked.
 
 ### Operational safeguards
 

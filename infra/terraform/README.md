@@ -43,8 +43,55 @@ module reads `data.aws_region.current.region`, which the v5 provider does
 not expose (it spells that attribute `name`). `bootstrap/` composes no
 modules and uses no v6-only attributes, so it stays on `>= 5.0`.
 
+They also require `terraform >= 1.7.0`, because the module's tests use
+`override_data`. The environments compose the module, so they declare the
+same floor rather than understating it. `bootstrap/` stands alone and stays
+on `>= 1.5.0`. CI runs 1.7.5 everywhere.
+
 To bump a provider, run `terraform init -upgrade` in each directory and
 commit the resulting lock files together.
+
+### Enforcement
+
+The `Lock check` job in `.github/workflows/terraform.yml` enforces the
+convention on every PR touching `infra/terraform/**`. It needs no AWS
+credentials, so it also runs on fork PRs. Two guards, because no single
+terraform command covers both:
+
+1. `terraform init -backend=false -input=false -lockfile=readonly` in each
+   directory, plus an assertion that all four resolve the same
+   `hashicorp/aws` version. `readonly` fails when terraform wants to write
+   the lock at all — a missing lock, one lacking hashes for the runner's
+   platform, or one whose recorded version no longer satisfies the
+   configured constraint. It says nothing about the other directories,
+   which is why the version equality is asserted separately.
+2. A regenerated-constraints comparison. Terraform only rewrites a lock's
+   `constraints` line when the selected version changes, so raising a
+   `required_providers` floor leaves the lock asserting a constraint the
+   configuration no longer declares — and *no* init objects, not
+   `-lockfile=readonly`, not a plain one, not `-upgrade`. The job therefore
+   copies the tree, deletes each lock, re-runs `init`, and compares only the
+   resulting `constraints` line against the committed one. The committed
+   locks are never touched, and the regenerated version and hashes are
+   ignored.
+
+When guard 2 fires, delete that directory's `.terraform.lock.hcl` and re-run
+`terraform init` to regenerate it — editing the `constraints` line by hand
+works too, but regenerating is what terraform itself would produce.
+
+### Lock file platforms
+
+The committed locks carry hashes for `linux_amd64` and `darwin_arm64` only.
+CI is `linux_amd64` and Apple Silicon is `darwin_arm64`, so both are covered.
+On any other platform — an Intel Mac, most notably — a `-lockfile=readonly`
+init fails because the lock has no hash for that platform, which is unrelated
+to whether the lock is actually in step. Either run the check on a covered
+platform or extend every lock:
+
+```bash
+terraform providers lock \
+  -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64
+```
 
 ## State Backend
 
@@ -123,6 +170,11 @@ per-environment plan jobs in parallel:
 
 - **Format Check** (`fmt-check`) — runs `terraform fmt -check -recursive`
   across all Terraform files. No AWS credentials required.
+- **Lock check** (`lock-check`) — verifies every committed
+  `.terraform.lock.hcl` is complete, agrees with its configuration, and pins
+  the same `hashicorp/aws` version as the other directories. No AWS
+  credentials required, so it runs on fork PRs too. See *Provider Versions →
+  Enforcement* above.
 - **Plan (staging)** / **Plan (prod)** — each environment runs its own plan:
   1. Authenticate to AWS via OIDC using the environment-specific role.
   2. `terraform init` with the real S3 backend.
@@ -131,10 +183,13 @@ per-environment plan jobs in parallel:
 
 #### Pull requests (forks)
 
-Fork PRs receive no AWS credentials. A single `validate-fork` job runs:
+Fork PRs receive no AWS credentials. The `validate-fork` job runs:
 
 1. `terraform fmt -check -recursive` across all Terraform files.
 2. Per environment: `terraform init -backend=false` and `terraform validate`.
+
+`Test (module)` and `Lock check` need no credentials either, so both run on
+fork PRs as well.
 
 #### Merge to main / workflow dispatch
 
@@ -253,12 +308,14 @@ protection rule:
 | CI        | `infra-checks`    | `terraform fmt` + `validate` (backend-disabled) |
 | CI        | `app-checks`      | Lint, test, build for application code   |
 | Terraform | `Format Check`    | `terraform fmt -check -recursive` on infra changes |
+| Terraform | `Lock check`      | Provider lock files complete and in step |
 
-The Terraform `Format Check` job runs on all PRs that touch
-`infra/terraform/**`. It requires no AWS credentials and blocks merge when
-formatting is invalid. Because the Terraform workflow only triggers on
-`infra/terraform/**` path changes, configure this check in branch protection
-with "Do not require this check to have run" so non-infra PRs are not blocked.
+The Terraform `Format Check` and `Lock check` jobs run on all PRs that touch
+`infra/terraform/**`. They require no AWS credentials and block merge when
+formatting is invalid or a provider lock has drifted. Because the Terraform
+workflow only triggers on `infra/terraform/**` path changes, configure these
+checks in branch protection with "Do not require this check to have run" so
+non-infra PRs are not blocked.
 
 #### How to verify
 
