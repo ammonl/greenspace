@@ -296,13 +296,12 @@ If the decision is NO-GO, document:
 
 If critical issues are discovered after launch:
 
-1. **API rollback:** Redeploy the previous Lambda version
+1. **API rollback:** Redeploy the previous bundle onto `$LATEST`
    ```bash
    aws lambda update-function-code \
      --function-name greenspace-prod-2026-api \
      --s3-bucket <previous-artifact-bucket> \
-     --s3-key <previous-artifact-key> \
-     --publish
+     --s3-key <previous-artifact-key>
    ```
    Alternatively, revert the commit on `main` and let the deploy workflow run.
 

@@ -70,8 +70,7 @@ jobs:
         run: |
           aws lambda update-function-code \
             --function-name "${{ vars.API_FUNCTION_NAME }}" \
-            --zip-file fileb://api-lambda.zip \
-            --publish
+            --zip-file fileb://api-lambda.zip
 
       - name: Wait for function to be active
         run: |
@@ -133,8 +132,7 @@ jobs:
         run: |
           aws lambda update-function-code \
             --function-name "${{ vars.API_FUNCTION_NAME }}" \
-            --zip-file fileb://api-lambda.zip \
-            --publish
+            --zip-file fileb://api-lambda.zip
 
       - name: Wait for function to be active
         run: |
