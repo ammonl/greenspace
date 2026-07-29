@@ -129,18 +129,18 @@ Each GitHub environment (`staging`, `production`) needs these variables:
 
 Four workflows handle CI, infrastructure, deployment, and drift detection:
 
-- **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), and performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled.
+- **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled, and verifies the committed provider lock files (`Lock check`, which no-ops when `infra/terraform` is untouched).
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
 - **Deploy (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 
 ### Pull requests (internal)
 
-A format check and per-environment plan jobs run in parallel. The `Format Check` job runs `terraform fmt -check -recursive` and blocks merge when formatting is invalid. Each environment gets its own plan job with output uploaded as a CI artifact.
+Credential-free checks and per-environment plan jobs run in parallel. The `Test (module)` job runs the module's provider-mocking `*.tftest.hcl` files. Each environment gets its own plan job with output uploaded as a CI artifact. The `terraform fmt` check for internal PRs comes from CI's `infra-checks` job, and the provider lock guard from CI's `Lock check`.
 
 ### Pull requests (forks)
 
-Fork PRs receive no AWS credentials. The workflow falls back to backend-disabled `terraform fmt` + `validate` only.
+Fork PRs receive no AWS credentials. The workflow falls back to backend-disabled `terraform fmt` + `validate`, plus the credential-free module test. CI's `Lock check` runs on fork PRs too.
 
 ### Merge to main
 
@@ -167,9 +167,9 @@ These checks should be required in the `main` branch protection rule:
 | --------- | ----------------- | ----------------------------------------------- |
 | CI        | `app-checks`      | Lint, test, build for application code          |
 | CI        | `infra-checks`    | `terraform fmt` + `validate` (backend-disabled) |
-| Terraform | `Format Check`    | `terraform fmt -check -recursive` on infra changes |
+| CI        | `Lock check`      | Provider lock files complete and in step        |
 
-The Terraform `Format Check` only triggers on `infra/terraform/**` changes. Configure it in branch protection with "Do not require this check to have run" so non-infra PRs are not blocked.
+All three live in `ci.yml`, which has no path filter, so each reports on every PR and is safe to require. Do **not** require a check from the Terraform workflow: it only triggers on `infra/terraform/**`, so on any other PR its checks never report and the PR is blocked indefinitely at "Expected — Waiting for status to be reported". Neither rulesets nor classic branch protection has a per-check "treat as passed if it never ran" option, which is why `Lock check` runs on every PR and filters internally. Until it is required in the branch protection rule it reports but blocks nothing.
 
 ### Operational safeguards
 
