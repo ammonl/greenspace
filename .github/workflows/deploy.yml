@@ -72,9 +72,9 @@ jobs:
             --function-name "${{ vars.API_FUNCTION_NAME }}" \
             --zip-file fileb://api-lambda.zip
 
-      - name: Wait for function to be active
+      - name: Wait for code update to complete
         run: |
-          aws lambda wait function-active-v2 \
+          aws lambda wait function-updated-v2 \
             --function-name "${{ vars.API_FUNCTION_NAME }}"
 
       - name: Run migrations
@@ -134,9 +134,9 @@ jobs:
             --function-name "${{ vars.API_FUNCTION_NAME }}" \
             --zip-file fileb://api-lambda.zip
 
-      - name: Wait for function to be active
+      - name: Wait for code update to complete
         run: |
-          aws lambda wait function-active-v2 \
+          aws lambda wait function-updated-v2 \
             --function-name "${{ vars.API_FUNCTION_NAME }}"
 
       - name: Run migrations
