@@ -395,12 +395,17 @@ on the shared-db side — is tracked as a follow-up in `un17-infra-shared`.
 ### Log encryption
 
 CloudWatch log groups are encrypted at rest with an AWS-owned key: the module
-sets no `kms_key_id`, which is CloudWatch's default. The SNS alarm topic names
-the AWS-managed `alias/aws/sns` explicitly, since SNS leaves a topic
-unencrypted at rest when no key is given.
+sets no `kms_key_id`, which is CloudWatch's default.
+
+The SNS alarm topic is left unencrypted at rest. SNS encrypts nothing unless
+given a key, and the AWS-managed `alias/aws/sns` is not a usable substitute for
+a customer-managed one here — its key policy cannot be edited to grant
+`cloudwatch.amazonaws.com` permission to publish, so alarm notifications would
+be dropped silently. Alarm payloads are metric names, thresholds, and function
+names, so delivery is worth more than encryption at rest.
 
 Both environments previously used a per-stack customer-managed key,
-`aws_kms_key.logs` (≈$1/mo each, for no benefit the AWS-managed keys don't
+`aws_kms_key.logs` (≈$1/mo each, for no benefit the default encryption doesn't
 already provide). Nothing encrypts under it now, but it stays enabled while
 log events written before the switch are still within retention — a key
 scheduled for deletion enters `PendingDeletion` and can no longer decrypt, so

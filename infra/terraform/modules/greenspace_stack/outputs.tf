@@ -119,7 +119,7 @@ output "api_log_group_name" {
 }
 
 output "logs_kms_key_arn" {
-  description = "ARN of the legacy logs KMS key. Nothing encrypts under it any more; it is retained only to decrypt log events written before the switch to AWS-managed encryption, and is removed once those have aged out."
+  description = "ARN of the legacy logs KMS key, retained only to decrypt pre-cutover log events."
   value       = aws_kms_key.logs.arn
 }
 

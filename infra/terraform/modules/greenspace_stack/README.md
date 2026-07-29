@@ -140,19 +140,30 @@ enable_alarms = true
 
 ## Log encryption
 
-The CloudWatch log groups take AWS-managed encryption at rest — no `kms_key_id`
-is set, so CloudWatch encrypts with an AWS-owned key. The SNS alarm topic names
-`alias/aws/sns` explicitly, because SNS applies no encryption at rest unless a
-key is given.
+The CloudWatch log groups are encrypted at rest with an **AWS-owned** key: no
+`kms_key_id` is set, which is CloudWatch's default. AWS-owned keys live outside
+the account entirely — they are not the AWS-*managed* `aws/logs` key, they do
+not appear in the KMS console, and they cost nothing.
+
+The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
+at rest**. SNS has no implicit encryption, and both ways to add it are worse
+than going without: a customer-managed key is what this module is retiring, and
+the AWS-managed `alias/aws/sns` has a key policy that **cannot be edited** to
+grant `cloudwatch.amazonaws.com` the `kms:GenerateDataKey*` / `kms:Decrypt` it
+needs — alarms would transition to ALARM normally and their notifications would
+be dropped silently. Alarm payloads carry metric names, thresholds, and
+function names, no personal data, so delivery is worth more than encryption at
+rest. Encrypting this topic would mean reintroducing a customer-managed key
+with an `Allow_CloudWatch_for_CMK` statement.
 
 `aws_kms_key.logs` (plus its alias, key policy, and the `logs_kms_key_arn`
-output) is the customer-managed key that used to do this job. It is retained,
-enabled, and unreferenced: log events written before the switch are still
-encrypted under it, and scheduling its deletion would move it to
+output) is the customer-managed key that used to encrypt the log groups. It is
+retained, enabled, and unreferenced: log events written before the switch are
+still encrypted under it, and scheduling its deletion would move it to
 `PendingDeletion` — unable to decrypt — stranding that data at once instead of
 at the end of the deletion window. Once each environment's
 `log_retention_days` window has aged the last of those events out (14 days
-staging, 90 days prod), or they have been exported, the key and its dependants
+staging, 90 days prod), or they have been exported, the key and its dependents
 are deleted.
 
 ## Least-privilege IAM

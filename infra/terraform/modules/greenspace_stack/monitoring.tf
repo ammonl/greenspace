@@ -1,12 +1,13 @@
 # ---------- Legacy logs KMS key ----------
 #
-# Nothing references this key any more: CloudWatch Logs and the SNS alarm topic
-# both encrypt with AWS-managed keys instead. It is kept alive only so log
-# events already written under it stay readable — a key scheduled for deletion
-# moves to `PendingDeletion` and can no longer decrypt, which would strand that
-# data immediately rather than after the deletion window. The key, its alias,
-# its policy, and the `logs_kms_key_arn` output are removed once every
-# environment's retention window has aged the last CMK-encrypted events out.
+# Nothing references this key any more: the log groups fall back to CloudWatch's
+# default AWS-owned encryption, and the SNS alarm topic is left unencrypted (see
+# below). It is kept alive only so log events already written under it stay
+# readable — a key scheduled for deletion moves to `PendingDeletion` and can no
+# longer decrypt, which would strand that data immediately rather than after the
+# deletion window. The key, its alias, its policy, and the `logs_kms_key_arn`
+# output are removed once every environment's retention window has aged the last
+# CMK-encrypted events out.
 
 resource "aws_kms_key" "logs" {
   description         = "Encryption key for ${local.naming_prefix} CloudWatch logs"
@@ -154,12 +155,18 @@ resource "aws_flow_log" "vpc" {
 
 # ---------- SNS Topic for Alarm Notifications ----------
 
-# SNS has no implicit encryption at rest, so dropping the customer-managed key
-# means naming the AWS-managed one explicitly rather than omitting the argument.
+# Deliberately unencrypted at rest. SNS applies no encryption unless given a
+# key, and both ways to give it one are worse than going without: a
+# customer-managed key is what this stack is retiring, and the AWS-managed
+# `alias/aws/sns` has a key policy that cannot be edited to grant
+# `cloudwatch.amazonaws.com` the `kms:GenerateDataKey*`/`kms:Decrypt` it needs
+# to publish — alarms would transition normally and their notifications would
+# be dropped with no error surfaced anywhere. Payloads are metric names,
+# thresholds, and function names, so delivery is worth more than encryption
+# here.
 resource "aws_sns_topic" "alarms" {
-  count             = var.enable_alarms ? 1 : 0
-  name              = "${local.naming_prefix}-alarms"
-  kms_master_key_id = "alias/aws/sns"
+  count = var.enable_alarms ? 1 : 0
+  name  = "${local.naming_prefix}-alarms"
 
   tags = {
     Name = "${local.naming_prefix}-alarms"
