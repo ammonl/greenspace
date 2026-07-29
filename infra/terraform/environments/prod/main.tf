@@ -1,6 +1,6 @@
 terraform {
-  # >= 1.7.0: inherited from the greenspace_stack module, whose tests use
-  # `override_data`. Declaring it here too keeps this constraint from
+  # >= 1.7.0: inherited from the greenspace_stack module, which declares that
+  # floor for its tests. Declaring it here too keeps this constraint from
   # understating what the environment actually needs.
   required_version = ">= 1.7.0"
 

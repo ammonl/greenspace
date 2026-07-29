@@ -136,7 +136,7 @@ Four workflows handle CI, infrastructure, deployment, and drift detection:
 
 ### Pull requests (internal)
 
-A format check, a provider lock check, and per-environment plan jobs run in parallel. The `Format Check` job runs `terraform fmt -check -recursive` and blocks merge when formatting is invalid. The `Lock check` job verifies every committed `.terraform.lock.hcl` is complete, agrees with its configuration, and pins the same `hashicorp/aws` version as the other Terraform directories. Each environment gets its own plan job with output uploaded as a CI artifact.
+Credential-free checks and per-environment plan jobs run in parallel. The `Test (module)` job runs the module's provider-mocking `*.tftest.hcl` files. The `Lock check` job verifies every committed `.terraform.lock.hcl` is complete, records the provider constraints its configuration declares, and pins the same provider versions as the other Terraform directories. Each environment gets its own plan job with output uploaded as a CI artifact. The `terraform fmt` check for internal PRs comes from CI's `infra-checks` job.
 
 ### Pull requests (forks)
 
@@ -167,10 +167,9 @@ These checks should be required in the `main` branch protection rule:
 | --------- | ----------------- | ----------------------------------------------- |
 | CI        | `app-checks`      | Lint, test, build for application code          |
 | CI        | `infra-checks`    | `terraform fmt` + `validate` (backend-disabled) |
-| Terraform | `Format Check`    | `terraform fmt -check -recursive` on infra changes |
 | Terraform | `Lock check`      | Provider lock files complete and in step        |
 
-The Terraform `Format Check` and `Lock check` only trigger on `infra/terraform/**` changes. Configure them in branch protection with "Do not require this check to have run" so non-infra PRs are not blocked.
+The Terraform `Lock check` only triggers on `infra/terraform/**` changes. Configure it in branch protection with "Do not require this check to have run" so non-infra PRs are not blocked; until it is required there, the job reports but blocks nothing. There is no `Format Check` job in the Terraform workflow — the format check for internal PRs is CI's `infra-checks`.
 
 ### Operational safeguards
 

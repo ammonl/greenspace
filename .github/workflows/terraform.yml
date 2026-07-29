@@ -60,14 +60,8 @@ jobs:
   lock-check:
     name: "Lock check"
     runs-on: ubuntu-latest
-    env:
-      # Relative to infra/terraform. Every directory holding a root
-      # configuration or a module that pins its own providers belongs here.
-      TF_DIRS: >-
-        bootstrap
-        environments/staging
-        environments/prod
-        modules/greenspace_stack
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,61 +73,114 @@ jobs:
           # The steps below parse terraform output, which the wrapper decorates.
           terraform_wrapper: false
 
-      # `-lockfile=readonly` fails when terraform wants to write the lock at
-      # all, which covers a missing lock, one lacking hashes for the runner's
-      # platform, and one whose recorded version no longer satisfies the
-      # configured constraint. It does not compare versions across
-      # directories, so that is asserted separately.
-      - name: Verify locks are complete and agree on a provider version
+      # Derived rather than hand-listed: a directory added later would
+      # otherwise go unguarded while the job still reported green, which is
+      # the drift this job exists to catch, one level up.
+      - name: Discover terraform directories
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=""
+          FILES=$(grep -rl --include='*.tf' --exclude-dir=.terraform required_providers infra/terraform || true)
+          if [ -z "$FILES" ]; then
+            echo "::error::no terraform directory under infra/terraform declares required_providers"
+            exit 1
+          fi
+          DIRS=$(echo "$FILES" | xargs -n1 dirname | sort -u)
+          STATUS=0
+          for DIR in $DIRS; do
+            if [ -f "$DIR/.terraform.lock.hcl" ]; then
+              echo "$DIR"
+            else
+              echo "::error::$DIR declares required_providers but commits no .terraform.lock.hcl — run 'terraform init' there and commit the lock"
+              STATUS=1
+            fi
+          done
+          echo "TF_DIRS=$(echo "$DIRS" | tr '\n' ' ')" >> "$GITHUB_ENV"
+          exit "$STATUS"
+
+      # Taken before the inits below, while the tree is still just
+      # configuration — after an init every directory carries a provider cache
+      # far larger than the files being copied.
+      - name: Snapshot configuration for constraint regeneration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/lock-check"
+          mkdir -p "$RUNNER_TEMP/lock-check"
+          cp -R infra/terraform "$RUNNER_TEMP/lock-check/terraform"
+
+      # `-lockfile=readonly` fails when terraform wants to write the lock at
+      # all, which covers a missing lock, one lacking hashes for the runner's
+      # platform, and one whose recorded version no longer satisfies the
+      # configured constraint. It compares nothing across directories, so
+      # agreement is asserted separately — over every provider rather than a
+      # named one, so adding a second provider cannot quietly widen the gap.
+      # A provider only one directory uses never conflicts.
+      - name: Verify locks are complete and agree on provider versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -A PINNED
+          declare -A PINNED_BY
+          STATUS=0
           for DIR in $TF_DIRS; do
             echo "--- $DIR ---"
-            terraform -chdir="infra/terraform/$DIR" init -backend=false -input=false -lockfile=readonly
-            VERSION=$(terraform -chdir="infra/terraform/$DIR" version -json |
-              jq -r '.provider_selections["registry.terraform.io/hashicorp/aws"] // empty')
-            if [ -z "$VERSION" ]; then
-              echo "::error::$DIR does not lock registry.terraform.io/hashicorp/aws"
-              exit 1
+            if ! terraform -chdir="$DIR" init -backend=false -input=false -lockfile=readonly; then
+              echo "::error::$DIR: 'terraform init -lockfile=readonly' failed — the committed lock is missing, lacks hashes for this platform, or no longer satisfies the configured version constraint"
+              STATUS=1
+              continue
             fi
-            if [ -z "$EXPECTED" ]; then
-              EXPECTED="$VERSION"
-            elif [ "$VERSION" != "$EXPECTED" ]; then
-              echo "::error::$DIR pins hashicorp/aws $VERSION, but an earlier directory pins $EXPECTED — run 'terraform init -upgrade' in every directory and commit the locks together"
-              exit 1
+            SELECTIONS=$(terraform -chdir="$DIR" version -json |
+              jq -r '.provider_selections | to_entries[] | "\(.key) \(.value)"')
+            if [ -z "$SELECTIONS" ]; then
+              echo "::error::$DIR locks no providers at all"
+              STATUS=1
+              continue
             fi
-            echo "$DIR pins hashicorp/aws $VERSION"
+            while read -r PROVIDER VERSION; do
+              echo "$DIR pins $PROVIDER $VERSION"
+              if [ -n "${PINNED[$PROVIDER]:-}" ] && [ "${PINNED[$PROVIDER]}" != "$VERSION" ]; then
+                echo "::error::$DIR pins $PROVIDER $VERSION, but ${PINNED_BY[$PROVIDER]} pins ${PINNED[$PROVIDER]} — run 'terraform init -upgrade' in every directory and commit the locks together"
+                STATUS=1
+              else
+                PINNED[$PROVIDER]="$VERSION"
+                PINNED_BY[$PROVIDER]="$DIR"
+              fi
+            done <<< "$SELECTIONS"
           done
-          echo "All lock files pin hashicorp/aws $EXPECTED"
+          exit "$STATUS"
 
       # A lock's `constraints` line is only rewritten when the selected
       # version changes, so raising a `required_providers` floor leaves the
       # lock asserting a constraint the configuration no longer declares and
       # no init — readonly, plain, or `-upgrade` — objects. Regenerating from
       # no lock at all is what produces a fresh constraint to compare against.
-      # This runs on a copy so the committed locks are never touched; the
-      # regenerated version and hashes are ignored.
+      # This runs on the snapshot so the committed locks are never touched;
+      # the regenerated versions and hashes are ignored. Constraints are
+      # compared alongside the provider lines that own them, so the
+      # comparison cannot slide onto a different provider.
       - name: Verify locks record the constraints the configuration declares
         shell: bash
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/lock-constraints"
-          rm -rf "$WORK"
-          mkdir -p "$WORK"
-          cp -R infra/terraform "$WORK/terraform"
-          find "$WORK/terraform" -type d -name .terraform -prune -exec rm -rf {} +
+          WORK="$RUNNER_TEMP/lock-check/terraform"
+          PATTERN='^provider |^[[:space:]]*constraints'
           STATUS=0
           for DIR in $TF_DIRS; do
-            RECORDED=$(grep -m1 -E '^[[:space:]]*constraints' "infra/terraform/$DIR/.terraform.lock.hcl")
-            rm -f "$WORK/terraform/$DIR/.terraform.lock.hcl"
-            terraform -chdir="$WORK/terraform/$DIR" init -backend=false -input=false > /dev/null
-            DECLARED=$(grep -m1 -E '^[[:space:]]*constraints' "$WORK/terraform/$DIR/.terraform.lock.hcl")
+            if ! RECORDED=$(grep -E "$PATTERN" "$DIR/.terraform.lock.hcl"); then
+              echo "::error::$DIR: .terraform.lock.hcl declares no provider blocks"
+              STATUS=1
+              continue
+            fi
+            SNAPSHOT="$WORK/${DIR#infra/terraform/}"
+            rm -f "$SNAPSHOT/.terraform.lock.hcl"
+            terraform -chdir="$SNAPSHOT" init -backend=false -input=false > /dev/null
+            DECLARED=$(grep -E "$PATTERN" "$SNAPSHOT/.terraform.lock.hcl")
             if [ "$RECORDED" = "$DECLARED" ]; then
-              echo "$DIR records ${RECORDED#*= }"
+              echo "$DIR records the constraints its configuration declares"
             else
-              echo "::error::$DIR records constraints ${RECORDED#*= } but the configuration declares ${DECLARED#*= } — delete the lock and re-run 'terraform init' to regenerate it"
+              echo "::error::$DIR: the committed lock's constraints disagree with the configuration — delete its .terraform.lock.hcl and re-run 'terraform init' to regenerate it"
+              diff <(echo "$RECORDED") <(echo "$DECLARED") || true
               STATUS=1
             fi
           done
