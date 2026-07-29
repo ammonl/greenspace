@@ -59,7 +59,7 @@ This runbook covers initial triage steps when a CloudWatch alarm fires or an ope
 ### 5. Investigate database (shared RDS) issues
 
 Greenspace runs on the **shared RDS instance owned by
-`ammonlarson/infra-shared-db`**; the dedicated per-environment RDS instances
+`ammonl/un17-infra-shared`**; the dedicated per-environment RDS instances
 and their CloudWatch alarms/dashboard widgets were removed in #347. Database
 metrics, alarms, and Performance Insights for the shared instance live in that
 repo's monitoring, so coordinate with the shared-db owner for instance-level

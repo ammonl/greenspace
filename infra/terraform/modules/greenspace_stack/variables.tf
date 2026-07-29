@@ -48,7 +48,7 @@ variable "private_subnet_cidrs" {
 }
 
 variable "shared_db_vpc_id" {
-  description = "VPC ID of the shared-RDS VPC owned by `ammonlarson/infra-shared-db`. When non-null, this module establishes a VPC peering connection from this environment's VPC to that one for runtime DB access. When null, no peering resources are created."
+  description = "VPC ID of the shared-RDS VPC owned by `ammonl/un17-infra-shared`. When non-null, this module establishes a VPC peering connection from this environment's VPC to that one for runtime DB access. When null, no peering resources are created."
   type        = string
   default     = null
 
@@ -72,7 +72,7 @@ variable "shared_db_vpc_cidr" {
 # ---------- Shared-VPC tenancy ----------
 
 variable "shared_vpc_id" {
-  description = "VPC ID of the shared default VPC owned by `ammonlarson/infra-shared-db`. When non-null, the API Lambda runs in shared-tenancy mode: it attaches to the published shared private subnets with its own egress-only security group in this VPC, and the dedicated VPC interface endpoints and shared-db peering are not created. When null (the default), the Lambda runs in this environment's dedicated VPC. Consume from SSM (`/shared/network/vpc-id`) at plan time — do not hardcode."
+  description = "VPC ID of the shared default VPC owned by `ammonl/un17-infra-shared`. When non-null, the API Lambda runs in shared-tenancy mode: it attaches to the published shared private subnets with its own egress-only security group in this VPC, and the dedicated VPC interface endpoints and shared-db peering are not created. When null (the default), the Lambda runs in this environment's dedicated VPC. Consume from SSM (`/shared/network/vpc-id`) at plan time — do not hardcode."
   type        = string
   default     = null
 

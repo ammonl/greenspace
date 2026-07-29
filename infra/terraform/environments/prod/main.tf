@@ -37,7 +37,7 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
-# Shared-VPC tenancy contract published by infra-shared-db (infra-shared-db#82).
+# Shared-VPC tenancy contract published by un17-infra-shared (ammonl/un17-infra-shared#82).
 # Consumed at plan time so the shared VPC / subnet IDs are never hardcoded.
 data "aws_ssm_parameter" "shared_vpc_id" {
   name = "/shared/network/vpc-id"

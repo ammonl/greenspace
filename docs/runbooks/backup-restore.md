@@ -3,12 +3,12 @@
 ## Overview
 
 Greenspace's transactional data lives on the **shared RDS instance owned by
-`ammonlarson/infra-shared-db`** (databases `greenspace_staging` and
+`ammonl/un17-infra-shared`** (databases `greenspace_staging` and
 `greenspace_prod`). The dedicated per-environment RDS instances were
 decommissioned in #347 after the shared-db cutover (#342 / #346).
 
 As a result, RDS automated backups, snapshots, and point-in-time restore for
-the live database are **managed by the `ammonlarson/infra-shared-db` repo**, not
+the live database are **managed by the `ammonl/un17-infra-shared` repo**, not
 by this stack. Backup retention, the backup window, and encryption settings for
 the shared instance are configured there. Refer to that repo's runbook for the
 authoritative restore procedure.

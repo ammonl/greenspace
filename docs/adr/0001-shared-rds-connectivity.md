@@ -14,7 +14,7 @@ the NAT cost. The private route table therefore has no `0.0.0.0/0` route at
 all today.
 
 In parallel, Greenspace is migrating off its dedicated per-environment RDS
-onto the shared RDS owned by `ammonlarson/infra-shared-db`. After #339 the
+onto the shared RDS owned by `ammonl/un17-infra-shared`. After #339 the
 shared instance exposes two distinct projects — `greenspace_staging` and
 `greenspace_prod` — each with its own database, role, and Secrets Manager
 secret. The shared instance currently has `publicly_accessible = true` and a
@@ -51,7 +51,7 @@ Concretely:
   Greenspace VPC CIDR, and the matching
   `accepter.allow_remote_vpc_dns_resolution = true` option. None of those
   changes are made in this ADR's PR; they ship in a follow-up
-  `infra-shared-db` PR.
+  `un17-infra-shared` PR.
 - One peering connection is created **per Greenspace environment**, so
   staging and prod stay isolated and fail independently.
 - The shared RDS keeps its current `publicly_accessible = true` posture and
@@ -110,7 +110,7 @@ Rejected because:
 ### Move shared RDS into a private subnet of a non-default VPC, then peer
 
 The cleanest end-state, but it conflates two changes. Out of scope for this
-ticket; can happen later inside `infra-shared-db` without changing the
+ticket; can happen later inside `un17-infra-shared` without changing the
 Greenspace side.
 
 ## Consequences

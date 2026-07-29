@@ -21,7 +21,7 @@ graph TB
 
     subgraph AWS
         SES[SES<br/>Email Delivery]
-        RDS[(Shared RDS PostgreSQL 16<br/>infra-shared-db)]
+        RDS[(Shared RDS PostgreSQL 16<br/>un17-infra-shared)]
         SM[Secrets Manager]
     end
 
@@ -265,7 +265,7 @@ graph TB
     end
 
     subgraph "AWS (eu-north-1)"
-        subgraph "Shared VPC (infra-shared-db, 172.31.0.0/16)"
+        subgraph "Shared VPC (un17-infra-shared, 172.31.0.0/16)"
             SHARED_SUB[Private Egress Subnets]
             SHARED_NAT[Shared NAT Gateway]
         end
@@ -276,7 +276,7 @@ graph TB
             EB[EventBridge<br/>Session Cleanup]
         end
 
-        subgraph "Shared Data (infra-shared-db)"
+        subgraph "Shared Data (un17-infra-shared)"
             RDS[(Shared RDS PostgreSQL)]
         end
 
@@ -336,14 +336,15 @@ graph TB
 ### Shared-VPC tenancy
 
 Greenspace runs on the shared RDS instance owned by
-`ammonlarson/infra-shared-db`; the dedicated per-environment RDS stack was
+`ammonl/un17-infra-shared`; the dedicated per-environment RDS stack was
 decommissioned in #347 after the runtime cutover (#342 / #346). Because
 greenspace has no dedicated database, the API Lambda itself now runs **inside
 the shared default VPC** (172.31.0.0/16) rather than in a dedicated
 per-environment VPC — the account-wide VPC consolidation (#471). The Lambda
 attaches to the shared private egress subnets (published via the SSM tenancy
 contract `/shared/network/vpc-id` and `/shared/network/private-subnet-ids`,
-infra-shared-db#82) with its own egress-only security group in the shared VPC:
+ammonl/un17-infra-shared#82) with its own egress-only security group in the
+shared VPC:
 
 - **Database:** the shared RDS lives in the same VPC, so the Lambda reaches it
   directly over the internal network — no peering hop. The shared RDS security
@@ -390,7 +391,7 @@ retained — it also encrypts the API log group and (when alarms are enabled)
 the SNS alarm topic, both unrelated to the dedicated VPC.
 
 Remaining cleanup — the accepter-side `greenspace_peering` ingress and routes
-on the shared-db side — is tracked as a follow-up in `infra-shared-db`.
+on the shared-db side — is tracked as a follow-up in `un17-infra-shared`.
 
 ### Environments
 
