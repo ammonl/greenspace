@@ -12,7 +12,7 @@ the staging and production environment stacks.
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES configuration set (domain identity + DKIM owned by un17hub) |
 | `dns.tf`         | No resources (Route 53 zone + SES/DKIM records owned by un17hub) |
-| `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
+| `monitoring.tf`  | CloudWatch log groups, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable), legacy logs KMS key (unreferenced, pending removal) |
 
 ## Shared-RDS connectivity
 
@@ -108,9 +108,9 @@ cross-environment state — with the actual apply ordering enforced by the
 `terraform.yml` workflow (staging applies first; prod applies behind the
 `production` GitHub environment's manual approval).
 
-`aws_kms_key.logs` is **not** destroyed by retirement: it also encrypts the
-API CloudWatch log group and (when `enable_alarms` is true) the SNS alarm
-topic, both of which are unrelated to the dedicated VPC and stay alive.
+`aws_kms_key.logs` is **not** destroyed by retirement either — it is unrelated
+to the dedicated VPC and is on its own removal track (see
+[Log encryption](#log-encryption)).
 Retirement is otherwise a one-way door — reverting `retire_dedicated_vpc` to
 `false` recreates a *fresh* dedicated VPC (new IDs), it does not restore the
 destroyed one.
@@ -137,6 +137,23 @@ enable_alarms = true
 
 `alarm_email` can stay set while alarms are disabled; it is ignored until
 `enable_alarms` is `true`.
+
+## Log encryption
+
+The CloudWatch log groups take AWS-managed encryption at rest — no `kms_key_id`
+is set, so CloudWatch encrypts with an AWS-owned key. The SNS alarm topic names
+`alias/aws/sns` explicitly, because SNS applies no encryption at rest unless a
+key is given.
+
+`aws_kms_key.logs` (plus its alias, key policy, and the `logs_kms_key_arn`
+output) is the customer-managed key that used to do this job. It is retained,
+enabled, and unreferenced: log events written before the switch are still
+encrypted under it, and scheduling its deletion would move it to
+`PendingDeletion` — unable to decrypt — stranding that data at once instead of
+at the end of the deletion window. Once each environment's
+`log_retention_days` window has aged the last of those events out (14 days
+staging, 90 days prod), or they have been exported, the key and its dependants
+are deleted.
 
 ## Least-privilege IAM
 

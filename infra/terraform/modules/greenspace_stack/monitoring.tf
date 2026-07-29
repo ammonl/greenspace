@@ -1,4 +1,12 @@
-# ---------- KMS Key for encryption ----------
+# ---------- Legacy logs KMS key ----------
+#
+# Nothing references this key any more: CloudWatch Logs and the SNS alarm topic
+# both encrypt with AWS-managed keys instead. It is kept alive only so log
+# events already written under it stay readable — a key scheduled for deletion
+# moves to `PendingDeletion` and can no longer decrypt, which would strand that
+# data immediately rather than after the deletion window. The key, its alias,
+# its policy, and the `logs_kms_key_arn` output are removed once every
+# environment's retention window has aged the last CMK-encrypted events out.
 
 resource "aws_kms_key" "logs" {
   description         = "Encryption key for ${local.naming_prefix} CloudWatch logs"
@@ -61,34 +69,26 @@ resource "aws_kms_key_policy" "logs" {
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/${local.naming_prefix}/api"
   retention_in_days = var.log_retention_days
-  kms_key_id        = aws_kms_key.logs.arn
 
   tags = {
     Name = "${local.naming_prefix}-api-logs"
   }
-
-  depends_on = [aws_kms_key_policy.logs]
 }
 
 # ---------- VPC Flow Logs ----------
 #
 # Exist only to serve the dedicated VPC, so they're destroyed alongside it on
-# retirement. `aws_kms_key.logs` is NOT gated here — it also encrypts the API
-# log group and (when alarms are enabled) the SNS topic, both of which stay
-# alive regardless of dedicated-VPC retirement.
+# retirement.
 
 resource "aws_cloudwatch_log_group" "vpc_flow" {
   count = local.dedicated_vpc_count
 
   name              = "/${local.naming_prefix}/vpc-flow"
   retention_in_days = var.log_retention_days
-  kms_key_id        = aws_kms_key.logs.arn
 
   tags = {
     Name = "${local.naming_prefix}-vpc-flow-logs"
   }
-
-  depends_on = [aws_kms_key_policy.logs]
 }
 
 data "aws_iam_policy_document" "vpc_flow_assume" {
@@ -154,10 +154,12 @@ resource "aws_flow_log" "vpc" {
 
 # ---------- SNS Topic for Alarm Notifications ----------
 
+# SNS has no implicit encryption at rest, so dropping the customer-managed key
+# means naming the AWS-managed one explicitly rather than omitting the argument.
 resource "aws_sns_topic" "alarms" {
   count             = var.enable_alarms ? 1 : 0
   name              = "${local.naming_prefix}-alarms"
-  kms_master_key_id = aws_kms_key.logs.id
+  kms_master_key_id = "alias/aws/sns"
 
   tags = {
     Name = "${local.naming_prefix}-alarms"

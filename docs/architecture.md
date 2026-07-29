@@ -298,7 +298,6 @@ graph TB
             IAM_API[API Runtime Role]
             IAM_CI[CI Deploy Role]
             IAM_TF[CI Terraform Role]
-            KMS[KMS Encryption Key]
             SECRETS[Secrets Manager]
         end
 
@@ -387,11 +386,27 @@ the underlying resource count itself requiring both conditions as a second
 line of defense). It is a one-way door: reverting `retire_dedicated_vpc`
 recreates a *fresh* dedicated VPC rather than restoring the destroyed one, so
 it is no longer usable as a shared-tenancy rollback net. `aws_kms_key.logs` is
-retained — it also encrypts the API log group and (when alarms are enabled)
-the SNS alarm topic, both unrelated to the dedicated VPC.
+retained — it is unrelated to the dedicated VPC and is on its own removal
+track (see [Log encryption](#log-encryption)).
 
 Remaining cleanup — the accepter-side `greenspace_peering` ingress and routes
 on the shared-db side — is tracked as a follow-up in `un17-infra-shared`.
+
+### Log encryption
+
+CloudWatch log groups are encrypted at rest with an AWS-owned key: the module
+sets no `kms_key_id`, which is CloudWatch's default. The SNS alarm topic names
+the AWS-managed `alias/aws/sns` explicitly, since SNS leaves a topic
+unencrypted at rest when no key is given.
+
+Both environments previously used a per-stack customer-managed key,
+`aws_kms_key.logs` (≈$1/mo each, for no benefit the AWS-managed keys don't
+already provide). Nothing encrypts under it now, but it stays enabled while
+log events written before the switch are still within retention — a key
+scheduled for deletion enters `PendingDeletion` and can no longer decrypt, so
+deleting it early would strand that data immediately. It is removed, with its
+alias, key policy, and module output, once those events have aged out (14 days
+staging, 90 days prod) or been exported.
 
 ### Environments
 
@@ -417,7 +432,7 @@ infra/terraform/
         ├── api_runtime.tf     Lambda function, Function URL, EventBridge schedule
         ├── dns.tf             No resources (zone + records owned by un17hub)
         ├── iam.tf             IAM roles and policies
-        ├── monitoring.tf      CloudWatch, KMS, Alarms, Dashboard, SNS
+        ├── monitoring.tf      CloudWatch, Alarms, Dashboard, SNS, legacy logs KMS key
         ├── networking.tf      VPC, subnets, gateways (dedicated VPC gated + retirable)
         ├── outputs.tf         Module outputs
         ├── peering.tf         Optional VPC peering to the shared-RDS VPC (gated)
