@@ -118,11 +118,6 @@ output "api_log_group_name" {
   value       = aws_cloudwatch_log_group.api.name
 }
 
-output "logs_kms_key_arn" {
-  description = "ARN of the KMS key used for log encryption."
-  value       = aws_kms_key.logs.arn
-}
-
 output "alarm_sns_topic_arn" {
   description = "ARN of the SNS topic for CloudWatch alarm notifications. Null when var.enable_alarms is false."
   value       = try(aws_sns_topic.alarms[0].arn, null)

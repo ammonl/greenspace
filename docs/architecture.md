@@ -298,7 +298,6 @@ graph TB
             IAM_API[API Runtime Role]
             IAM_CI[CI Deploy Role]
             IAM_TF[CI Terraform Role]
-            KMS[KMS Encryption Key]
             SECRETS[Secrets Manager]
         end
 
@@ -386,12 +385,52 @@ Retirement is a per-environment `retire_dedicated_vpc` module input, gated on
 the underlying resource count itself requiring both conditions as a second
 line of defense). It is a one-way door: reverting `retire_dedicated_vpc`
 recreates a *fresh* dedicated VPC rather than restoring the destroyed one, so
-it is no longer usable as a shared-tenancy rollback net. `aws_kms_key.logs` is
-retained — it also encrypts the API log group and (when alarms are enabled)
-the SNS alarm topic, both unrelated to the dedicated VPC.
+it is no longer usable as a shared-tenancy rollback net.
 
 Remaining cleanup — the accepter-side `greenspace_peering` ingress and routes
 on the shared-db side — is tracked as a follow-up in `un17-infra-shared`.
+
+### Log encryption
+
+CloudWatch log groups are encrypted at rest with an AWS-owned key: the module
+sets no `kms_key_id`, which is CloudWatch's default.
+
+Both environments previously used a per-stack customer-managed key,
+`aws_kms_key.logs` (≈$1/mo each, for no benefit the default encryption doesn't
+already provide). It was removed outright, along with its alias, key policy, and
+module output.
+
+**That removal made existing log history unreadable.** Events written before the
+apply were encrypted under the key, and a key scheduled for deletion enters
+`PendingDeletion` where it can no longer decrypt — so up to 90 days of prod API
+logs and 14 days of staging became unrecoverable the moment the apply landed,
+not at the end of the deletion window. This was an accepted cost. There is a
+30-day escape hatch: while the key sits in `PendingDeletion`,
+`aws kms cancel-key-deletion` followed by `aws kms enable-key` restores
+readability. After that window the key is gone and so is the data.
+
+The SNS alarm topic is left unencrypted at rest, and `alias/aws/sns` is
+specifically not the fix. Per the [SNS key management
+docs](https://docs.aws.amazon.com/sns/latest/dg/sns-key-management.html), an AWS
+service event source can publish to an encrypted topic only through a
+customer-managed key whose policy names that service principal, and the
+AWS-managed key has no editable policy. CloudWatch alarms are this topic's only
+publisher, so encrypting it that way would silently make every notification
+undeliverable — the alarm still transitions, the publish just fails. The payload
+is an alarm name, a metric, and a state, with no personal data, so that trade is
+not worth making. The default topic policy (`AWS:SourceOwner` equal to the
+account) already admits CloudWatch, so no compensating `aws_sns_topic_policy` is
+needed.
+
+Re-encrypting the topic later would require a customer-managed key with an
+`Allow_CloudWatch_for_CMK` statement. Worth knowing: the key that was just
+removed never granted `cloudwatch.amazonaws.com` either — only account root and
+`logs.<region>.amazonaws.com`, and account-root delegation reaches IAM
+principals, not service principals acting as themselves. Alarm delivery through
+an encrypted topic has never worked here. It has never mattered, since
+`enable_alarms` is `false` in both environments and no topic exists, but
+`var.enable_alarms` defaults to `true` — so the first season alarms come back is
+when it would first be noticed.
 
 ### Environments
 
@@ -417,7 +456,7 @@ infra/terraform/
         ├── api_runtime.tf     Lambda function, Function URL, EventBridge schedule
         ├── dns.tf             No resources (zone + records owned by un17hub)
         ├── iam.tf             IAM roles and policies
-        ├── monitoring.tf      CloudWatch, KMS, Alarms, Dashboard, SNS
+        ├── monitoring.tf      CloudWatch, Alarms, Dashboard, SNS
         ├── networking.tf      VPC, subnets, gateways (dedicated VPC gated + retirable)
         ├── outputs.tf         Module outputs
         ├── peering.tf         Optional VPC peering to the shared-RDS VPC (gated)

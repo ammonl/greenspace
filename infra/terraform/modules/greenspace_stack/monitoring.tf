@@ -1,94 +1,34 @@
-# ---------- KMS Key for encryption ----------
-
-resource "aws_kms_key" "logs" {
-  description         = "Encryption key for ${local.naming_prefix} CloudWatch logs"
-  enable_key_rotation = true
-
-  tags = {
-    Name = "${local.naming_prefix}-logs-key"
-  }
-}
-
-resource "aws_kms_alias" "logs" {
-  name          = "alias/${local.naming_prefix}-logs"
-  target_key_id = aws_kms_key.logs.key_id
-}
-
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-resource "aws_kms_key_policy" "logs" {
-  key_id = aws_kms_key.logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "RootAccess"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "CloudWatchLogs"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.${data.aws_region.current.region}.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey",
-        ]
-        Resource = "*"
-        Condition = {
-          ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${local.naming_prefix}/*"
-          }
-        }
-      },
-    ]
-  })
-}
-
 # ---------- CloudWatch Log Groups ----------
+#
+# Encrypted at rest with an AWS-owned key, which is what CloudWatch applies when
+# no `kms_key_id` is set.
 
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/${local.naming_prefix}/api"
   retention_in_days = var.log_retention_days
-  kms_key_id        = aws_kms_key.logs.arn
 
   tags = {
     Name = "${local.naming_prefix}-api-logs"
   }
-
-  depends_on = [aws_kms_key_policy.logs]
 }
 
 # ---------- VPC Flow Logs ----------
 #
 # Exist only to serve the dedicated VPC, so they're destroyed alongside it on
-# retirement. `aws_kms_key.logs` is NOT gated here — it also encrypts the API
-# log group and (when alarms are enabled) the SNS topic, both of which stay
-# alive regardless of dedicated-VPC retirement.
+# retirement.
 
 resource "aws_cloudwatch_log_group" "vpc_flow" {
   count = local.dedicated_vpc_count
 
   name              = "/${local.naming_prefix}/vpc-flow"
   retention_in_days = var.log_retention_days
-  kms_key_id        = aws_kms_key.logs.arn
 
   tags = {
     Name = "${local.naming_prefix}-vpc-flow-logs"
   }
-
-  depends_on = [aws_kms_key_policy.logs]
 }
 
 data "aws_iam_policy_document" "vpc_flow_assume" {
@@ -154,10 +94,19 @@ resource "aws_flow_log" "vpc" {
 
 # ---------- SNS Topic for Alarm Notifications ----------
 
+# Deliberately unencrypted at rest, and `alias/aws/sns` is specifically not the
+# fix. An AWS service event source can publish to an encrypted topic only
+# through a customer-managed key whose policy names that service principal, and
+# the AWS-managed key has no editable policy. CloudWatch alarms are this topic's
+# only publisher, so pointing at `alias/aws/sns` would buy encryption at rest by
+# making every notification undeliverable — silently, since the alarm itself
+# still transitions. The payload is an alarm name, a metric, and a state, with
+# no personal data, so that is a bad trade. The default topic policy
+# (`AWS:SourceOwner` equal to the account) already admits CloudWatch, so no
+# compensating `aws_sns_topic_policy` is needed.
 resource "aws_sns_topic" "alarms" {
-  count             = var.enable_alarms ? 1 : 0
-  name              = "${local.naming_prefix}-alarms"
-  kms_master_key_id = aws_kms_key.logs.id
+  count = var.enable_alarms ? 1 : 0
+  name  = "${local.naming_prefix}-alarms"
 
   tags = {
     Name = "${local.naming_prefix}-alarms"

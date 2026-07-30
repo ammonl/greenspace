@@ -12,7 +12,7 @@ the staging and production environment stacks.
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES configuration set (domain identity + DKIM owned by un17hub) |
 | `dns.tf`         | No resources (Route 53 zone + SES/DKIM records owned by un17hub) |
-| `monitoring.tf`  | CloudWatch log groups, KMS encryption key, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
+| `monitoring.tf`  | CloudWatch log groups, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
 
 ## Shared-RDS connectivity
 
@@ -108,9 +108,6 @@ cross-environment state — with the actual apply ordering enforced by the
 `terraform.yml` workflow (staging applies first; prod applies behind the
 `production` GitHub environment's manual approval).
 
-`aws_kms_key.logs` is **not** destroyed by retirement: it also encrypts the
-API CloudWatch log group and (when `enable_alarms` is true) the SNS alarm
-topic, both of which are unrelated to the dedicated VPC and stay alive.
 Retirement is otherwise a one-way door — reverting `retire_dedicated_vpc` to
 `false` recreates a *fresh* dedicated VPC (new IDs), it does not restore the
 destroyed one.
@@ -137,6 +134,50 @@ enable_alarms = true
 
 `alarm_email` can stay set while alarms are disabled; it is ignored until
 `enable_alarms` is `true`.
+
+## Log encryption
+
+The CloudWatch log groups are encrypted at rest with an **AWS-owned** key: no
+`kms_key_id` is set, which is CloudWatch's default. AWS-owned keys live outside
+the account entirely — they are not the AWS-*managed* `aws/logs` key, they do
+not appear in the KMS console, and they cost nothing.
+
+The module used to provision a per-stack customer-managed key,
+`aws_kms_key.logs`, for this. It was removed outright — key, alias, key policy,
+and the `logs_kms_key_arn` output — rather than disassociated and left to age
+out. **That made pre-existing log history unreadable**: events written before
+the apply were encrypted under the key, and a key scheduled for deletion enters
+`PendingDeletion` where it can no longer decrypt, so the loss landed on apply
+rather than at the end of the deletion window. Up to 90 days of prod and 14 days
+of staging API logs went with it. This was accepted deliberately. The only
+recovery path is the 30-day `PendingDeletion` window: `aws kms
+cancel-key-deletion` then `aws kms enable-key` restores readability while the
+key still exists.
+
+The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
+at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.
+
+Per the [SNS key management
+docs](https://docs.aws.amazon.com/sns/latest/dg/sns-key-management.html), an AWS
+service event source can publish to an encrypted topic **only** through a
+customer-managed key whose policy names that service principal — and the
+AWS-managed `alias/aws/sns` has no editable policy. CloudWatch alarms are this
+topic's only publisher, so encrypting it that way would make every notification
+undeliverable, silently: the alarm still transitions to ALARM, and the publish
+just fails. A silent alerting failure is worse than the posture gap it buys.
+The payload is an alarm name, a metric, and a state — no personal data. The
+default topic policy (`AWS:SourceOwner` equal to the account) already admits
+CloudWatch, so no compensating `aws_sns_topic_policy` is required.
+
+**If you ever re-encrypt this topic, it needs a customer-managed key with an
+`Allow_CloudWatch_for_CMK` statement.** Note the key this module used to have
+never granted `cloudwatch.amazonaws.com` either — only account root and
+`logs.<region>.amazonaws.com`, and account-root delegation reaches IAM
+principals, not service principals acting as themselves. Alarm delivery through
+an encrypted topic has therefore never worked in this stack. It has never
+mattered, because `enable_alarms` is `false` in both environments and no topic
+exists; but `var.enable_alarms` defaults to `true`, so the first season someone
+turns alarms back on is the first time it would bite.
 
 ## Least-privilege IAM
 
