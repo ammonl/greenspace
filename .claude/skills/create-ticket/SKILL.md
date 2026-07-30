@@ -1,6 +1,6 @@
 ---
 name: create-ticket
-description: Create a well-structured ticket or issue in Jira, Linear, or GitHub Issues. Use whenever the user wants to file a bug, feature request, task, or chore. Auto-detects which platform is available.
+description: Create a well-structured ticket or issue with the target repo's declared ticket provider (Jira, Linear, or GitHub Issues). Use whenever the user wants to file a bug, feature request, task, or chore. Falls back to auto-detection when no provider is declared.
 ---
 
 Create a ticket/issue based on the user's description. Follow these steps:
@@ -67,13 +67,12 @@ For any cutover, configuration, or deployment ticket:
 ## 4. Create the Issue
 
 **For Linear**:
-Use `mcp__claude_ai_Linear__save_issue` with:
+Use the available Linear issue-creation tool (e.g. `save_issue`) with:
 
 - `title`: The issue title
 - `description`: Formatted markdown body
 - `priority`: Map user priority to Linear values (urgent=1, high=2, medium=3, low=4)
-- `teamId`: Detect from `mcp__claude_ai_Linear__list_teams` if not obvious
-- `labels`: Add a label matching the repository name without the organization or owner prefix. For example, use `interhuman-api` for `InterhumanAI/interhuman-api`. Verify the label exists and create it if necessary before creating the issue.
+- `teamId`: Detect from the Linear team-listing tool (e.g. `list_teams`) if not obvious
 
 **For Jira**:
 Use the available Jira MCP tool (e.g. `create_issue`) with:
@@ -83,7 +82,6 @@ Use the available Jira MCP tool (e.g. `create_issue`) with:
 - `issuetype`: Map user type to the project's type name (Bug, Story/Feature, Task, or the nearest configured equivalent)
 - `priority`: Map user priority to the project's scheme (Urgent/Highest, High, Medium, Low)
 - `project`: The project key. Detect from `.jira` config or ask if not obvious.
-- `labels`: Add a label matching the repository name without the organization or owner prefix, mirroring the Linear rule above.
 
 If no Jira MCP tool is available but the `jira` CLI is installed:
 
@@ -99,13 +97,31 @@ printf '%s' "<body>" > /tmp/issue-body.txt
 gh issue create --title "<title>" --body-file /tmp/issue-body.txt --label "<type>"
 ```
 
-GitHub Issues has no native Todo state. Interpret a request to put a GitHub issue in Todo as leaving the issue open, unless a configured GitHub Project exposes a Todo status; when it does, add the issue to that project status.
+## 5. State, Labels, and Assignee
 
-Put a filed ticket in its provider's triage/backlog state (Linear `Triage`, the Jira equivalent, or a configured GitHub Project triage column). Assign the designated project assignee if one exists.
+Apply each of these to the filed ticket, and **silently skip any step the provider
+can't represent** — an unsupported step is not a failure, and never fake one (no
+invented status label, no comment standing in for a state you can't set).
 
-Do NOT add a "Codex" or "claude" label when creating issues. Those labels are reserved for when an agent picks up a ticket to work on it.
+- **State**: put the ticket in its provider's triage/backlog state — Linear `Triage`,
+  the Jira project's equivalent, or a configured GitHub Project triage column. GitHub
+  Issues has no native state, so an open issue already _is_ its triage state; read a
+  request to put a GitHub issue in `Todo` or `Triage` the same way. Only set a status
+  on a GitHub Project item when the repo actually has a project configured.
+- **Repo label**: make the target repository identifiable, reusing the label form that
+  tracker already uses — the repository name minus its owner prefix in a shared
+  Linear/Jira workspace (`interhuman-api` for `InterhumanAI/interhuman-api`), or an
+  existing `owner/repo` label where a GitHub repo has one. Check the existing labels
+  first: create a new one only when the tracker spans repositories and has none, never
+  introduce a second variant of a label that already exists in another form, and skip
+  the label entirely on a per-repo tracker that doesn't use one.
+- **Type label**: apply one if the provider supports it (`--label "<type>"` on GitHub,
+  where the label must already exist; the type field on Jira/Linear).
+- **Assignee**: assign the designated project assignee if one exists.
+- **Never** add a `claude` or `Codex` label. Those are reserved for when an agent picks
+  up a ticket to work on it.
 
-## 5. Confirm and Share
+## 6. Confirm and Share
 
 After creating, output:
 

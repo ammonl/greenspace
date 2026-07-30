@@ -1,76 +1,16 @@
 ---
 name: create-issue
-description: Create a well-structured issue ticket in Linear or GitHub. Use when the user wants to file a bug, feature request, or task. Auto-detects which platform is available.
+description: Create a well-structured issue ticket with the target repo's declared ticket provider (Jira, Linear, or GitHub Issues). Use when the user wants to file a bug, feature request, task, or chore.
 ---
 
-Create an issue ticket based on the user's description. Follow these steps:
+Filing an "issue" and filing a "ticket" are the same job, so this skill is an alias:
+follow the `create-ticket` skill and do exactly what it says.
 
-## 1. Gather Information
+`create-ticket` is the single source of truth for provider selection, the issue body
+template, ticket state, labels, and assignee — including that the target repo's
+`AGENTS.md` `Ticket Provider:` wins over any auto-detection, that a connected tracker
+MCP tool is not evidence the project uses that tracker, and that steps a provider can't
+represent are silently skipped rather than treated as failures.
 
-If the user hasn't provided enough detail, ask for:
-
-- **Title**: Short, action-oriented summary (e.g., "Fix login timeout on mobile")
-- **Type**: Bug, Feature, Task, or Chore
-- **Description**: What is the problem or goal?
-- **Acceptance criteria**: How do we know it's done? (optional but recommended)
-- **Priority**: Urgent, High, Medium, Low (default: Medium)
-
-## 2. Choose Platform
-
-1. **Declared provider first**: If the target repo's `AGENTS.md` declares a **Ticket Provider**, use exactly that platform. Skip auto-detection and do not probe any other provider. If the target repo is not the working repo, read its `AGENTS.md` from the host (e.g. `gh api repos/<owner>/<repo>/contents/AGENTS.md`) or ask.
-2. **Otherwise auto-detect from project-level markers only.** A Linear MCP tool being available in context is NOT evidence the project uses Linear — connectors follow the account, not the project.
-   - **Linear**: The project itself references Linear (a `.linear` config, or Linear issue IDs in the repo) and a Linear issue-creation tool (e.g. `save_issue`) is available.
-   - **GitHub**: The project has a `.git` remote pointing to GitHub — use `gh issue create`.
-3. **If still ambiguous**: Ask the user which to use.
-
-## 3. Format the Issue
-
-Structure the issue body using this template:
-
-```
-## Summary
-[1-2 sentence description of the problem or goal]
-
-## Details
-[More context, repro steps for bugs, or requirements for features]
-
-## Acceptance Criteria
-- [ ] [Criterion 1]
-- [ ] [Criterion 2]
-
-## Notes
-[Any additional context, links, or related issues]
-```
-
-For bugs, include:
-
-- Steps to reproduce
-- Expected vs actual behavior
-- Environment/version info if relevant
-
-## 4. Create the Issue
-
-**For Linear**:
-Use `mcp__claude_ai_Linear__save_issue` with:
-
-- `title`: The issue title
-- `description`: Formatted markdown body
-- `priority`: Map user priority to Linear values (urgent=1, high=2, medium=3, low=4)
-- `teamId`: Detect from `mcp__claude_ai_Linear__list_teams` if not obvious
-
-**For GitHub**:
-
-```bash
-printf '%s' "<body>" > /tmp/issue-body.txt
-gh issue create --title "<title>" --body-file /tmp/issue-body.txt --label "<type>"
-```
-
-Do NOT add a "claude" label when creating issues. That label is reserved for when an agent picks up a ticket to work on it.
-
-## 5. Confirm and Share
-
-After creating, output:
-
-- The issue title and number/ID
-- A direct link to the issue
-- One-line summary of what was created
+Nothing here overrides `create-ticket`; if the two ever appear to disagree,
+`create-ticket` is correct.

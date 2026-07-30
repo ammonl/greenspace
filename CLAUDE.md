@@ -24,18 +24,37 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
   branch, validation, PR, or reviewer.
 - If it's unclear whether code changes are expected, ask (AskUserQuestion).
 
+## Ticket provider capabilities
+
+Ticket steps in this file describe intent, not one tracker's UI. Do what the repo's
+declared provider supports and **silently skip the rest** — an unsupported step is
+not a failed step. Never substitute for a missing capability (no invented label, no
+comment standing in for a status you can't set), and never downgrade a provider that
+does support a step.
+
+- **Labels** (`agent active`, `claude`): any provider with labels. On GitHub Issues
+  the label must already exist in the repo — skip rather than create one.
+- **In-progress / in-review status**: providers with workflow states (e.g. Linear).
+  GitHub Issues has no native status, so skip it there — unless a configured GitHub
+  Project exposes those columns, in which case set the status on the project item.
+- **Comment the PR link + summary on the ticket**: any provider with comments.
+- **Ticket reference in a PR**: use the provider's own identifier (`#123` for GitHub
+  Issues, `INT-123` for Linear) — a bare number is not a reference.
+- **Reviewers** are a PR concept, not a ticket one: set them on the PR for every
+  provider.
+
 ## Phase 1 — Pre-work
 
 - The ticket provider is declared in the repo's `AGENTS.md` (`Ticket Provider:`).
   Read `AGENTS.md` before any ticket lookup and resolve ticket references only
   against the declared provider — never probe another one first. A connected
-  MCP tool (e.g. Linear) is not evidence the repo uses that provider; connectors
+  tracker MCP tool is not evidence the repo uses that provider; connectors
   follow the account, not the project. If `AGENTS.md` is missing or declares no
   provider, ask (AskUserQuestion).
-- Read the ticket via its provider. Add the `agent active` and `claude` labels to
-  the ticket you're working and set it In Progress. Skip provider-unsupported
-  steps (GitHub Issues has no In Progress status, and its labels must already
-  exist).
+- Read the ticket via its provider, then mark it as picked up: add the
+  `agent active` and `claude` labels _if the provider supports labels_ and move it
+  to an in-progress state _if the provider has one_ — see **Ticket provider
+  capabilities** above.
 - Write a plan to `.agent/ticket-<n>-plan.md`. Don't commit plan files.
 - Work on a feature branch. On Claude Code remote the branch is created before
   this file is read — continue on it rather than remaking it.
@@ -69,8 +88,8 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 ## Phase 4 — Submission
 
 - Push and open a PR: conventional-commit title, body with a summary + test plan,
-  referencing the ticket (#<n>). Keep the title/description current with
-  `gh pr edit` as later commits change the branch's scope.
+  referencing the ticket by its provider's identifier. Keep the title/description
+  current with `gh pr edit` as later commits change the branch's scope.
 - **Review (mandatory).** Review the diff — use the `pr-reviewer` agent for diffs
   that change logic, control flow, data handling, or public contracts; self-review
   is enough for trivial diffs — and post it as a distinct PR review comment, even
@@ -79,9 +98,10 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
   out-of-scope items. Then post a _separate_ responder follow-up comment (e.g.
   "Thanks for the review."). The reviewer comment and the responder comment are
   two distinct comments — never merge them.
-- Remove the `agent active` label. Add the designated assignee(s) as reviewer.
-  Comment the PR link + implementation summary on the ticket, and set it In Review
-  (skip steps the provider can't do).
+- Hand the ticket back: remove the `agent active` label, comment the PR link +
+  implementation summary on it, and move it to an in-review state. Add the
+  designated assignee(s) as reviewer on the PR itself. Skip whatever the provider
+  can't represent (see **Ticket provider capabilities**).
 - **Watch the PR** until it merges, if the subscription tool is available: subscribe
   once right after opening it (accept the single, unsuppressable permission prompt —
   it's one-time, then events arrive prompt-free), then handle CI failures and review
@@ -105,11 +125,15 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - **Agent memory** (`.claude/agent-memory/`): per-repo and never synced — the
   central config sync neither copies nor deletes anything there. Edit it freely; a
   sync won't undo the change. Never seed it from another repo's memory files.
-- **Filing tickets** (distinct from the ticket you're working): file with the
-  target repo's declared ticket provider (its `AGENTS.md` `Ticket Provider:`;
-  if that repo isn't checked out locally, read the file from the host or ask),
-  label with the target `owner/repo`, set its triage/backlog state, assign the
-  project's assignee, and never add the `claude` label. Skip unsupported steps.
+- **Filing tickets** (distinct from the ticket you're working): the `create-ticket`
+  skill holds the canonical procedure. File with the target repo's declared ticket
+  provider (its `AGENTS.md` `Ticket Provider:`; if that repo isn't checked out
+  locally, read the file from the host or ask), set its triage/backlog state, assign
+  the project's assignee, and never add the `claude` label. Label it so the target repo
+  is identifiable, reusing whatever form that tracker already uses — a bare repo name
+  in a shared Linear/Jira workspace, an existing `owner/repo` label on GitHub — rather
+  than inventing a second variant; a per-repo tracker with no such label needs none.
+  Skip unsupported steps.
 - **Requesting repo access** you don't have: stop and ask the user for it with
   exact instructions — see `.claude/docs/github-access.md`.
 - **Python projects:** see the `python-guidelines` skill (uv-managed envs, `src/`
