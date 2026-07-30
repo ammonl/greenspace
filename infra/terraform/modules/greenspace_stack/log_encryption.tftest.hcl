@@ -79,69 +79,30 @@ run "api_log_group_uses_default_encryption" {
 }
 
 # The CI Terraform role is what would build a replacement key, so the posture
-# above is only as durable as the permissions behind it. The assertions below
+# above is only as durable as the permissions behind it. Both assertions below
 # guard the grants rather than the resources: without them, the first step back
 # toward a customer-managed key is a quiet one-line addition to `iam.tf` that no
 # other test in this module would notice.
 #
-# All of them read every inline policy attached to `aws_iam_role.ci_terraform`,
-# not just the one that carries the KMS statement today. IAM unions a role's
-# inline policies, so a guard that reads one document proves nothing about the
-# role — `terraform-state` in particular has no shape guard of its own and is the
-# natural place to reach for when granting on the SSE-KMS state bucket.
-# The same three-document expression opens every assertion below. It cannot be
-# hoisted — `.tftest.hcl` files take no `locals` block — so it is repeated
-# verbatim, and any edit to one copy belongs in all of them. Two details in it
-# are load-bearing: `flatten([s.Action])`, because aws_iam_policy_document
-# renders a single-element Action as a bare string rather than a list; and the
-# `s.Effect == "Allow"` filter, because a guard on what the role may be
-# *granted* must not reject an explicit deny (`DenySelfModify`).
-#
-# Every assertion below is an allowlist or an exact-match denylist over named
-# actions, and a service-wide wildcard defeats both: `logs:*` confers
-# `logs:AssociateKmsKey` without ever spelling it, and a bare `*` confers the
-# whole key lifecycle. Reject that shape once here so the guards that follow can
-# reason about names. `service:Verb*` is untouched — the bootstrap policy is
-# built from `amplify:Get*`-style prefixes on purpose.
-run "ci_terraform_role_grants_no_service_wide_wildcard" {
+# Both read `local.ci_terraform_granted_actions` — every action the role holds
+# across all three of its inline policies, defined once in `iam.tf`. A guard that
+# read a single policy document would prove nothing about the role, since IAM
+# unions them. They also rely on `ci_terraform_role_grants_no_service_wide_wildcard`
+# in `iam.tftest.hcl` to reject `*` and `service:*`, which would otherwise confer
+# what these reject without ever naming it.
+run "ci_terraform_role_holds_no_kms_key_grants" {
   command = plan
 
   assert {
-    condition = length([
-      for a in toset(flatten([
-        for doc in [
-          data.aws_iam_policy_document.ci_terraform_state.json,
-          data.aws_iam_policy_document.ci_terraform_resources.json,
-          data.aws_iam_policy_document.ci_terraform_bootstrap.json,
-        ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
-      ])) : a if a == "*" || endswith(a, ":*")
-    ]) == 0
-    error_message = "The CI Terraform role must not be granted a bare '*' or a service-wide 'service:*' wildcard. Every other grant guard in this module and in iam.tftest.hcl matches on action names, so a wildcard silently confers the actions they exist to reject. Enumerate the actions instead."
-  }
-}
-
-run "ci_terraform_role_cannot_manage_kms_keys" {
-  command = plan
-
-  assert {
-    # `kms:Decrypt` serves the SSM SecureString read in the environment roots,
-    # not a key this module owns (see iam.tf). The three read prefixes are the
-    # bootstrap policy's plan-refresh grants. An allowlist rather than a
+    # The three read prefixes are the bootstrap policy's plan-refresh grants and
+    # are the role's entire remaining `kms:` surface. An allowlist rather than a
     # denylist, so `kms:CreateKey` and every key-lifecycle action nobody has
     # named here fail alike.
     condition = length(setsubtract(
-      toset([
-        for a in flatten([
-          for doc in [
-            data.aws_iam_policy_document.ci_terraform_state.json,
-            data.aws_iam_policy_document.ci_terraform_resources.json,
-            data.aws_iam_policy_document.ci_terraform_bootstrap.json,
-          ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
-        ]) : a if startswith(a, "kms:")
-      ]),
-      toset(["kms:Decrypt", "kms:Describe*", "kms:Get*", "kms:List*"])
+      toset([for a in local.ci_terraform_granted_actions : a if startswith(a, "kms:")]),
+      toset(["kms:Describe*", "kms:Get*", "kms:List*"])
     )) == 0
-    error_message = "The CI Terraform role may hold no KMS grant beyond kms:Decrypt and the bootstrap policy's kms:Describe*/Get*/List* plan-refresh reads. This module manages no key, alias, or key policy, so a key-lifecycle grant means a customer-managed key is being reintroduced — do that deliberately, alongside the resource that needs it."
+    error_message = "The CI Terraform role may hold no KMS grant beyond the bootstrap policy's kms:Describe*/Get*/List* plan-refresh reads. This module manages no key, alias, or key policy; the state bucket, lock table, log groups, and Lambda environment variables all sit under AWS-owned or AWS-managed keys that need no IAM-side grant; and the /shared/network/* SSM parameters are String and StringList, so nothing decrypts. A grant here means one of those changed — restore it out of band first, per the note in iam.tf."
   }
 }
 
@@ -150,34 +111,9 @@ run "ci_terraform_role_cannot_bind_a_key_to_a_log_group" {
 
   assert {
     condition = length([
-      for a in toset(flatten([
-        for doc in [
-          data.aws_iam_policy_document.ci_terraform_state.json,
-          data.aws_iam_policy_document.ci_terraform_resources.json,
-          data.aws_iam_policy_document.ci_terraform_bootstrap.json,
-        ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
-      ])) : a if contains(["logs:AssociateKmsKey", "logs:DisassociateKmsKey"], a)
+      for a in local.ci_terraform_granted_actions :
+      a if contains(["logs:AssociateKmsKey", "logs:DisassociateKmsKey"], a)
     ]) == 0
     error_message = "The CI Terraform role must not hold logs:AssociateKmsKey or logs:DisassociateKmsKey. The log groups take CloudWatch's AWS-owned key and set no kms_key_id, so these only become meaningful alongside a customer-managed key — the posture the assertions above reject."
-  }
-}
-
-# The guards above cap what the role may hold. This one is the floor, and it
-# guards the direction that cannot be undone by another apply: an apply can
-# always take a grant away, but a role that has lost the permission its own plan
-# depends on cannot restore it, because the plan that would restore it is the
-# one that fails. `kms:Decrypt` is the only grant here in that position.
-run "ci_terraform_role_keeps_kms_decrypt" {
-  command = plan
-
-  assert {
-    condition = contains(flatten([
-      for doc in [
-        data.aws_iam_policy_document.ci_terraform_state.json,
-        data.aws_iam_policy_document.ci_terraform_resources.json,
-        data.aws_iam_policy_document.ci_terraform_bootstrap.json,
-      ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
-    ]), "kms:Decrypt")
-    error_message = "kms:Decrypt must stay granted until the /shared/network/* SSM parameters are confirmed to be plain String, or SecureString under alias/aws/ssm. If they are SecureString under a customer-managed key, removing this fails terraform plan in both environments and the role cannot grant it back to itself. The three commands that settle it are in the KMSDecrypt comment in iam.tf; run them before deleting this assertion."
   }
 }

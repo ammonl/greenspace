@@ -23,10 +23,19 @@ env:
 jobs:
   # --------------- Module: offline terraform test (no AWS credentials) ---------------
   #
-  # Runs only the module's fully self-contained *.tftest.hcl files — the ones
-  # that mock the AWS provider (skip_credentials_validation + override_data on
-  # aws_caller_identity/aws_region) so they need no OIDC role and are safe to
-  # run on fork PRs.
+  # Every *.tftest.hcl in the module is fully self-contained — it mocks the AWS
+  # provider (skip_credentials_validation + override_data on
+  # aws_caller_identity/aws_region) — so the whole suite needs no OIDC role and is
+  # safe to run on fork PRs.
+  #
+  # Deliberately not an enumeration of `-filter` flags. That shape looked like an
+  # opt-in and behaved like a trapdoor: `terraform test` ignores a `-filter`
+  # naming a file that does not exist and still exits 0, so when #507 deleted
+  # `retirement.tftest.hcl` the stale filter sat here reporting success, and
+  # renaming any remaining file would have silently stopped running it with the
+  # check still green. Running everything is self-maintaining, and a future test
+  # that does need real credentials will fail loudly here rather than being
+  # quietly excluded — which is the signal you want.
 
   test-module:
     name: "Test (module)"
@@ -46,7 +55,7 @@ jobs:
 
       - name: Terraform test
         working-directory: infra/terraform/modules/greenspace_stack
-        run: terraform test -no-color -filter=retirement.tftest.hcl -filter=iam_bootstrap.tftest.hcl -filter=iam.tftest.hcl -filter=log_encryption.tftest.hcl
+        run: terraform test -no-color
 
   # --------------- Pull Request: plan per environment ---------------
 

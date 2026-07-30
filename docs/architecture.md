@@ -458,17 +458,36 @@ so `PutLogEvents` was denied between the key-policy reset and
 `DisassociateKmsKey`.
 
 With the removal applied in both environments, the CI Terraform role's grants
-that existed only to manage the key are gone as well — the key-lifecycle set and
-`logs:AssociateKmsKey` / `logs:DisassociateKmsKey`. `kms:Decrypt` remains: the
+that existed only to manage the key are gone as well — the key-lifecycle set,
+`logs:AssociateKmsKey` / `logs:DisassociateKmsKey`, and both data-plane actions.
+The role's entire remaining `kms:` surface is the bootstrap policy's
+`Describe*`/`Get*`/`List*` plan-refresh reads.
+
+`kms:Decrypt` went last, and only after checking what reads through it. The
 environment roots read the shared-VPC tenancy contract from SSM on every plan,
-and that read needs it if either parameter is a `SecureString` under a
-customer-managed key. `log_encryption.tftest.hcl` holds the line in both
-directions across all three of the role's inline policies — the granted `kms:`
-set may contain nothing beyond `kms:Decrypt` and the bootstrap policy's
-`Describe*`/`Get*`/`List*` reads, neither `logs:` key-binding action may appear,
-no service-wide wildcard may confer them by another name, and `kms:Decrypt` may
-not be dropped. So rebuilding a key means widening the guard deliberately, and
-retiring the last grant means running the checks in `iam.tf` first.
+which would have needed the grant had either parameter been a `SecureString`
+under a customer-managed key. Neither is: `/shared/network/vpc-id` is a `String`
+and `/shared/network/private-subnet-ids` a `StringList`, both with no `KeyId`.
+Everything else the role touches sits under an AWS-owned or AWS-managed key —
+the state bucket, the lock table, the log groups, the Lambda's environment
+variables — and those need no IAM-side grant, because an AWS-managed key's own
+policy admits same-account callers through `kms:ViaService`.
+
+That last point cuts both ways, and there is a trap in it worth naming. Because
+`alias/aws/ssm` grants decrypt through `kms:ViaService` with no IAM grant
+required, dropping `kms:Decrypt` does **not** narrow what an over-broad SSM read
+would expose — `ssm:GetParameter --with-decryption` on `*` would still return
+every `SecureString` in the account. The scoping on the bootstrap policy's
+`SharedNetworkSsmRead` statement is the only thing preventing that, and it is
+load-bearing independently of any KMS grant.
+
+`log_encryption.tftest.hcl` and `iam.tftest.hcl` hold the line across **all
+three** of the role's inline policies, not one — IAM unions them, so a guard
+reading a single document proves nothing about the role. Between them they cap
+the granted `kms:`, `ec2:`, and `secretsmanager:` sets against explicit
+allowlists, reject both `logs:` key-binding actions, and reject a bare `*` or
+`service:*` that would confer any of the above without naming it. Rebuilding a
+key means widening a guard deliberately.
 
 The SNS alarm topic is left unencrypted at rest, and `alias/aws/sns` is
 specifically not the fix. Per the [SNS key management
