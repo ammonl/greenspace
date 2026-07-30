@@ -11,7 +11,7 @@ the staging and production environment stacks.
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES configuration set (domain identity + DKIM owned by un17hub) |
 | `dns.tf`         | No resources (Route 53 zone + SES/DKIM records owned by un17hub) |
-| `monitoring.tf`  | CloudWatch log group, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated) |
+| `monitoring.tf`  | CloudWatch log group, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), module-wide `aws_caller_identity` / `aws_region` data sources |
 
 ## Shared-VPC tenancy
 
@@ -110,16 +110,46 @@ the account entirely — they are not the AWS-*managed* `aws/logs` key, they do
 not appear in the KMS console, and they cost nothing.
 
 The module used to provision a per-stack customer-managed key,
-`aws_kms_key.logs`, for this. It was removed outright — key, alias, key policy,
+`aws_kms_key.logs`, for this. It is removed outright — key, alias, key policy,
 and the `logs_kms_key_arn` output — rather than disassociated and left to age
-out. **That made pre-existing log history unreadable**: events written before
-the apply were encrypted under the key, and a key scheduled for deletion enters
-`PendingDeletion` where it can no longer decrypt, so the loss landed on apply
-rather than at the end of the deletion window. Up to 90 days of prod and 14 days
-of staging API logs went with it. This was accepted deliberately. The only
-recovery path is the 30-day `PendingDeletion` window: `aws kms
-cancel-key-deletion` then `aws kms enable-key` restores readability while the
-key still exists.
+out. **Applying that removal makes pre-existing log history unreadable** in the
+environment it applies to: events written before the apply are encrypted under
+the key, and a key scheduled for deletion enters `PendingDeletion` where it can
+no longer decrypt, so the loss lands on apply rather than at the end of the
+deletion window. Up to 90 days of prod and 14 days of staging API logs go with
+it. This was accepted deliberately. Staging and prod apply separately —
+`terraform.yml` applies staging on merge and gates prod behind the `production`
+environment's manual approval — so one may have lost its history while the other
+still has it.
+
+Recovery is possible for 30 days after the apply, but **it takes three steps,
+not two.** The same apply destroys `aws_kms_key_policy.logs`, and destroying
+that resource does not delete the policy — the provider resets it to the
+account default, which is root-only. Cancelling the deletion therefore leaves an
+enabled key that CloudWatch Logs still cannot use, because account-root
+delegation reaches IAM principals, not service principals acting as themselves.
+The policy has to be put back:
+
+```
+aws kms cancel-key-deletion --key-id <key-arn>
+aws kms enable-key          --key-id <key-arn>
+aws kms put-key-policy      --key-id <key-arn> --policy-name default \
+  --policy file://logs-key-policy.json
+```
+
+where `logs-key-policy.json` re-grants `logs.<region>.amazonaws.com` at minimum
+`kms:Decrypt` and `kms:DescribeKey`, under the original `ArnLike` condition on
+`kms:EncryptionContext:aws:logs:arn` scoped to `log-group:/<naming_prefix>/*`.
+The CI Terraform role cannot run any of this — `iam.tf` grants neither
+`kms:CancelKeyDeletion` nor `kms:EnableKey`, so recovery needs an admin
+principal. The key ARNs are recorded on the follow-up ticket, since the apply
+deletes the aliases and removes the output.
+
+Note also that each apply drops log events for a few seconds. Terraform orders
+the KMS destroys **before** the in-place update that disassociates the log
+group, so between the key policy reset and the `DisassociateKmsKey` call
+`PutLogEvents` is denied. The apply does not fail, and out of season the gap is
+usually empty, but new events in that window are lost.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.

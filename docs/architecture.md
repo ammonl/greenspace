@@ -420,17 +420,41 @@ sets no `kms_key_id`, which is CloudWatch's default.
 
 Both environments previously used a per-stack customer-managed key,
 `aws_kms_key.logs` (≈$1/mo each, for no benefit the default encryption doesn't
-already provide). It was removed outright, along with its alias, key policy, and
+already provide). It is removed outright, along with its alias, key policy, and
 module output.
 
-**That removal made existing log history unreadable.** Events written before the
-apply were encrypted under the key, and a key scheduled for deletion enters
-`PendingDeletion` where it can no longer decrypt — so up to 90 days of prod API
-logs and 14 days of staging became unrecoverable the moment the apply landed,
-not at the end of the deletion window. This was an accepted cost. There is a
-30-day escape hatch: while the key sits in `PendingDeletion`,
-`aws kms cancel-key-deletion` followed by `aws kms enable-key` restores
-readability. After that window the key is gone and so is the data.
+**Applying that removal makes existing log history unreadable.** Events written
+before the apply are encrypted under the key, and a key scheduled for deletion
+enters `PendingDeletion` where it can no longer decrypt — so up to 90 days of
+prod API logs and 14 days of staging are lost the moment the apply lands, not at
+the end of the deletion window. This is an accepted cost. Staging and prod apply
+independently (`terraform.yml` applies staging on merge, prod behind the
+`production` environment's manual approval), so check which have actually run
+before assuming either environment's history is gone.
+
+There is a 30-day escape hatch, but it is **three steps, not two**. The same
+apply destroys `aws_kms_key_policy.logs`, and destroying that resource resets
+the key policy to the account default rather than deleting it — leaving a
+root-only policy. Cancelling the deletion therefore produces an enabled key that
+CloudWatch Logs still cannot use, for the same service-principal reason
+described below. The policy must be restored as well:
+
+```
+aws kms cancel-key-deletion --key-id <key-arn>
+aws kms enable-key          --key-id <key-arn>
+aws kms put-key-policy      --key-id <key-arn> --policy-name default \
+  --policy file://logs-key-policy.json
+```
+
+The policy needs to re-grant `logs.<region>.amazonaws.com` at least
+`kms:Decrypt` and `kms:DescribeKey` under the original `ArnLike` condition on
+`kms:EncryptionContext:aws:logs:arn`. The CI Terraform role holds neither
+`kms:CancelKeyDeletion` nor `kms:EnableKey`, so this needs an admin principal.
+After the window closes the key is gone and so is the data.
+
+Each apply also drops a few seconds of log events: Terraform orders the KMS
+destroys ahead of the in-place update that disassociates the log group, so
+`PutLogEvents` is denied between the key-policy reset and `DisassociateKmsKey`.
 
 The SNS alarm topic is left unencrypted at rest, and `alias/aws/sns` is
 specifically not the fix. Per the [SNS key management
