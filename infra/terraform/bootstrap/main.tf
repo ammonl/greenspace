@@ -1,10 +1,13 @@
 terraform {
-  required_version = ">= 1.5.0"
+  # >= 1.7.0: the `removed` block below needs it.
+  required_version = ">= 1.7.0"
 
+  # >= 6.0: the state bucket's encryption rule sets `blocked_encryption_types`,
+  # which the v5 provider does not know about.
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.0"
+      version = ">= 6.0"
     }
   }
 }
@@ -47,6 +50,12 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
       sse_algorithm = "aws:kms"
     }
     bucket_key_enabled = true
+
+    # Reject SSE-C uploads outright. Nothing writes state with a caller-supplied
+    # key, and a bucket that accepts them can hold objects this account cannot
+    # decrypt. Declared rather than left to the provider default (`[]`), which
+    # would silently relax the setting the live bucket already carries.
+    blocked_encryption_types = ["SSE-C"]
   }
 }
 
@@ -77,22 +86,39 @@ resource "aws_dynamodb_table" "tflock" {
 }
 
 # ---------- GitHub Actions OIDC Provider ----------
+#
+# Read, not managed. IAM allows exactly one OIDC provider per URL per account,
+# so `token.actions.githubusercontent.com` is a single account-wide resource
+# shared by every UN17 repo — this one, un17hub, un17-resources, loppemarked,
+# un17-calendar, and un17-infra-shared. It is created and owned by whichever
+# stack bootstraps the account (its live `project` tag says un17hub), and the
+# environment stacks here have always read it rather than declared it.
+#
+# It used to be declared as a resource in this file too, which meant two repos
+# claiming one resource: each apply rewrote the other's `project` tag, and each
+# side's drift detection reported the other's work as drift. Worse, the declared
+# `thumbprint_list` was a placeholder (`ffff...`) on the theory that AWS ignores
+# the thumbprint for GitHub's provider, so applying it overwrote the real
+# thumbprints with a dummy value on the root of trust for all keyless CI auth.
+#
+# Consequence worth knowing: bootstrapping a brand-new account requires this
+# provider to exist first. Create it once from the account-level stack that owns
+# it, then run this one.
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
 
-resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
-
-  # AWS does not validate the thumbprint for GitHub's OIDC provider
-  # (see https://github.blog/changelog/2023-06-27-github-actions-update-on-oidc-integration-with-aws/).
-  # Terraform still requires the field, so a placeholder is used.
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
-
-  tags = {
-    purpose = "github-actions-oidc"
-  }
+# Drops the provider from any bootstrap state that still tracks it as a managed
+# resource, without touching the live resource. `destroy = false` is the whole
+# point: deleting the resource block alone would plan a destroy — and because
+# `prevent_destroy` lives in configuration, removing the block removes the guard
+# along with it, so nothing would stop the delete that breaks CI auth for six
+# repos. A no-op for state that never tracked it.
+removed {
+  from = aws_iam_openid_connect_provider.github
 
   lifecycle {
-    prevent_destroy = true
+    destroy = false
   }
 }
 
@@ -114,6 +140,6 @@ output "lock_table_name" {
 }
 
 output "github_oidc_provider_arn" {
-  description = "ARN of the GitHub Actions OIDC identity provider."
-  value       = aws_iam_openid_connect_provider.github.arn
+  description = "ARN of the GitHub Actions OIDC identity provider. Read from the account, not managed here."
+  value       = data.aws_iam_openid_connect_provider.github.arn
 }

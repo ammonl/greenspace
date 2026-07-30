@@ -38,15 +38,16 @@ currently on `hashicorp/aws` 6.34.0; keep them in step so the module's
 offline `terraform test` run exercises the same provider version that
 `plan` and `apply` use.
 
-The environment stacks and the shared module require `aws >= 6.0`: the
-module reads `data.aws_region.current.region`, which the v5 provider does
-not expose (it spells that attribute `name`). `bootstrap/` composes no
-modules and uses no v6-only attributes, so it stays on `>= 5.0`.
+All four directories require `aws >= 6.0`. The module reads
+`data.aws_region.current.region`, which the v5 provider does not expose (it
+spells that attribute `name`), and the environments compose the module.
+`bootstrap/` composes nothing, but sets `blocked_encryption_types` on the
+state bucket's encryption rule, which the v5 provider does not know about.
 
-They also require `terraform >= 1.7.0`, because the module's tests use
-`override_data`. The environments compose the module, so they declare the
-same floor rather than understating it. `bootstrap/` stands alone and stays
-on `>= 1.5.0`. CI runs 1.7.5 everywhere.
+All four also require `terraform >= 1.7.0`. The module's tests use
+`override_data`, and the environments compose the module, so they declare the
+same floor rather than understating it. `bootstrap/` needs it for a `removed`
+block. CI runs 1.7.5 everywhere.
 
 To bump a provider, run `terraform init -upgrade` in each directory and
 commit the resulting lock files together.
@@ -136,7 +137,22 @@ other stacks depend on. Run this once before initializing environments.
 | ------------------------------ | --------------------------------------------- |
 | S3 bucket                      | Terraform remote state                        |
 | DynamoDB table                 | State locking                                 |
-| IAM OIDC identity provider     | GitHub Actions OIDC trust (keyless CI auth)   |
+
+### Resources read, not created
+
+| Resource                       | Why it is not managed here                    |
+| ------------------------------ | --------------------------------------------- |
+| IAM OIDC identity provider     | Account-wide and shared by every UN17 repo    |
+
+IAM allows one OIDC provider per URL per account, so
+`token.actions.githubusercontent.com` is a single resource shared by this repo,
+un17hub, un17-resources, loppemarked, un17-calendar, and un17-infra-shared. It
+is owned by whichever account-level stack bootstraps it — its live `project` tag
+says un17hub — and read here (and by both environment stacks) via
+`data.aws_iam_openid_connect_provider`.
+
+It **must already exist** before `bootstrap/` is applied to a brand-new account.
+Create it once from the stack that owns it, then run this one.
 
 ### Steps
 
@@ -150,16 +166,31 @@ terraform apply tfplan
 After the bootstrap resources exist, environment stacks can be initialized
 with their remote backend. No manual AWS Console steps are required.
 
-### Importing an existing OIDC provider
+### If bootstrap state is missing
 
-If the GitHub OIDC provider was previously created manually in the AWS
-Console, import it into bootstrap state before applying:
+`bootstrap/` declares no backend, so its state is local and gitignored. A fresh
+checkout therefore has no state, and `terraform plan` proposes **creating** the
+bucket and lock table even though both exist and are in active use by the
+environment backends. That plan is reporting an empty state, not an empty
+account — do not apply it. Import instead:
 
 ```bash
 cd infra/terraform/bootstrap
-terraform import aws_iam_openid_connect_provider.github \
-  arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com
+terraform init
+terraform import aws_s3_bucket.tfstate greenspace-2026-tfstate
+terraform import aws_s3_bucket_versioning.tfstate greenspace-2026-tfstate
+terraform import aws_s3_bucket_server_side_encryption_configuration.tfstate greenspace-2026-tfstate
+terraform import aws_s3_bucket_public_access_block.tfstate greenspace-2026-tfstate
+terraform import aws_dynamodb_table.tflock greenspace-2026-tflock
 ```
+
+The OIDC provider needs no import — it is read, not managed. If an older
+bootstrap state still tracks it as a managed resource, the `removed` block in
+`main.tf` drops it from state on the next apply without touching the live
+provider.
+
+`plan` should then be clean. Anything it still wants to change is real drift
+worth reading before approving.
 
 ## Environment Init / Apply Workflow
 
