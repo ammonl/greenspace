@@ -1,71 +1,10 @@
-# ---------- Legacy logs KMS key ----------
-#
-# Nothing references this key any more: the log groups fall back to CloudWatch's
-# default AWS-owned encryption, and the SNS alarm topic is left unencrypted (see
-# below). It is kept alive only so log events already written under it stay
-# readable — a key scheduled for deletion moves to `PendingDeletion` and can no
-# longer decrypt, which would strand that data immediately rather than after the
-# deletion window. The key, its alias, its policy, and the `logs_kms_key_arn`
-# output are removed once every environment's retention window has aged the last
-# CMK-encrypted events out.
-
-resource "aws_kms_key" "logs" {
-  description         = "Encryption key for ${local.naming_prefix} CloudWatch logs"
-  enable_key_rotation = true
-
-  tags = {
-    Name = "${local.naming_prefix}-logs-key"
-  }
-}
-
-resource "aws_kms_alias" "logs" {
-  name          = "alias/${local.naming_prefix}-logs"
-  target_key_id = aws_kms_key.logs.key_id
-}
-
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-resource "aws_kms_key_policy" "logs" {
-  key_id = aws_kms_key.logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "RootAccess"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
-      },
-      {
-        Sid    = "CloudWatchLogs"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.${data.aws_region.current.region}.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey",
-        ]
-        Resource = "*"
-        Condition = {
-          ArnLike = {
-            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${local.naming_prefix}/*"
-          }
-        }
-      },
-    ]
-  })
-}
-
 # ---------- CloudWatch Log Groups ----------
+#
+# Encrypted at rest with an AWS-owned key, which is what CloudWatch applies when
+# no `kms_key_id` is set.
 
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/${local.naming_prefix}/api"
@@ -155,15 +94,16 @@ resource "aws_flow_log" "vpc" {
 
 # ---------- SNS Topic for Alarm Notifications ----------
 
-# Deliberately unencrypted at rest. SNS applies no encryption unless given a
-# key, and both ways to give it one are worse than going without: a
-# customer-managed key is what this stack is retiring, and the AWS-managed
-# `alias/aws/sns` has a key policy that cannot be edited to grant
-# `cloudwatch.amazonaws.com` the `kms:GenerateDataKey*`/`kms:Decrypt` it needs
-# to publish — alarms would transition normally and their notifications would
-# be dropped with no error surfaced anywhere. Payloads are metric names,
-# thresholds, and function names, so delivery is worth more than encryption
-# here.
+# Deliberately unencrypted at rest, and `alias/aws/sns` is specifically not the
+# fix. An AWS service event source can publish to an encrypted topic only
+# through a customer-managed key whose policy names that service principal, and
+# the AWS-managed key has no editable policy. CloudWatch alarms are this topic's
+# only publisher, so pointing at `alias/aws/sns` would buy encryption at rest by
+# making every notification undeliverable — silently, since the alarm itself
+# still transitions. The payload is an alarm name, a metric, and a state, with
+# no personal data, so that is a bad trade. The default topic policy
+# (`AWS:SourceOwner` equal to the account) already admits CloudWatch, so no
+# compensating `aws_sns_topic_policy` is needed.
 resource "aws_sns_topic" "alarms" {
   count = var.enable_alarms ? 1 : 0
   name  = "${local.naming_prefix}-alarms"

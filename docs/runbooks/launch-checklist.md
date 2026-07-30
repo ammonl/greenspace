@@ -25,7 +25,7 @@ Complete all checks in the staging environment before proceeding to production.
 - [x] NAT gateway operational (Lambda can reach SES and external services)
 - [x] CloudWatch log group is receiving Lambda logs
   - Log group: `/greenspace-staging-2026/api`
-- [x] CloudWatch log groups are encrypted at rest (AWS-owned key)
+- [x] KMS key is active for log encryption
 
 ### 1.2 Database & Data
 
