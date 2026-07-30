@@ -102,6 +102,9 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - **Shell:** one command per line — never chain with `&&`. Never use heredocs in
   Bash (they break permission matching); write `gh` bodies to a temp file and use
   `--body-file`.
+- **Agent memory** (`.claude/agent-memory/`): per-repo and never synced — the
+  central config sync neither copies nor deletes anything there. Edit it freely; a
+  sync won't undo the change. Never seed it from another repo's memory files.
 - **Filing tickets** (distinct from the ticket you're working): file with the
   target repo's declared ticket provider (its `AGENTS.md` `Ticket Provider:`;
   if that repo isn't checked out locally, read the file from the host or ask),

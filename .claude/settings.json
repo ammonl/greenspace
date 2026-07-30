@@ -70,6 +70,7 @@
       "Bash(xcodegen generate:*)",
       "Bash(xcrun devicectl:*)",
       "Edit",
+      "Edit(/.claude/agent-memory/**)",
       "Edit(//tmp/**)",
       "Read",
       "Read(//tmp/**)",
