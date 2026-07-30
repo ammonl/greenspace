@@ -1,3 +1,8 @@
+# ---------- Module-wide data sources ----------
+#
+# Declared here for historical reasons; `iam.tf`, `networking.tf`, and the
+# dashboard below all depend on them.
+
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
