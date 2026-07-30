@@ -55,7 +55,6 @@
       "Bash(printf:*)",
       "Bash(pyright:*)",
       "Bash(python -m pytest:*)",
-      "Bash(python3:*)",
       "Bash(pytest:*)",
       "Bash(ruff:*)",
       "Bash(supabase db dump:*)",
