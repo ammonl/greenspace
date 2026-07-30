@@ -1,11 +1,11 @@
 terraform {
-  # >= 1.7.0: retirement.tftest.hcl uses `override_data`, introduced in 1.7.
+  # >= 1.7.0: the `*.tftest.hcl` suites use `override_data`, introduced in 1.7.
   required_version = ">= 1.7.0"
 
-  # >= 6.0: iam.tf, monitoring.tf, and networking.tf read
-  # `data.aws_region.current.region`, which the v5 provider does not expose (it
-  # spells that attribute `name`). Against v5 the module fails `terraform
-  # validate` outright, so the floor has to be v6 to be honest.
+  # >= 6.0: iam.tf and monitoring.tf read `data.aws_region.current.region`,
+  # which the v5 provider does not expose (it spells that attribute `name`).
+  # Against v5 the module fails `terraform validate` outright, so the floor has
+  # to be v6 to be honest.
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -23,45 +23,12 @@ locals {
   # so callers reference the name and IAM uses a `name-*` resource pattern.
   shared_db_secret_name = "rds/shared/${var.project}_${var.environment}"
 
-  # Shared-VPC tenancy: when `shared_vpc_id` is set the API Lambda runs inside
-  # the shared default VPC (its private egress subnets + shared NAT) instead of
-  # this environment's dedicated VPC. In that mode the dedicated interface
-  # endpoints and the shared-db peering are not created — Secrets Manager and
-  # SES ride the shared NAT and the RDS SG already admits the shared VPC CIDR.
-  shared_tenancy = var.shared_vpc_id != null
-
-  lambda_subnet_ids         = local.shared_tenancy ? var.shared_private_subnet_ids : aws_subnet.private[*].id
-  lambda_security_group_ids = local.shared_tenancy ? [aws_security_group.api_shared[0].id] : [aws_security_group.api[0].id]
-
-  # Shared-db peering is the DB path only for the dedicated-VPC layout. It is
-  # torn down while in shared-tenancy mode (the shared RDS is reachable directly
-  # inside the shared VPC), but the `shared_db_vpc_id`/`shared_db_vpc_cidr`
-  # inputs stay set so reverting `shared_vpc_id` alone recreates the peering and
-  # restores DB connectivity — the dedicated VPC has no NAT of its own.
-  peering_enabled = var.shared_db_vpc_id != null && !local.shared_tenancy
-
-  # Dedicated-VPC retirement: destroys the dedicated VPC and everything that
-  # exists only to serve it (subnets, route tables, IGW, dedicated-VPC security
-  # groups, VPC flow logs). Requiring `shared_tenancy` here too — not just in
-  # the `retire_dedicated_vpc_gate` precondition below — keeps the dedicated
-  # VPC (and the Lambda's only network path) intact if `retire_dedicated_vpc`
-  # is ever set without `shared_vpc_id`: the precondition still fails the plan
-  # loudly, but a config bug in the gate can't silently strand the Lambda.
-  dedicated_vpc_count = (var.retire_dedicated_vpc && local.shared_tenancy) ? 0 : 1
-}
-
-# Enforces that retirement only happens after the Lambda has already moved into
-# the shared VPC — retiring the dedicated VPC while still depending on it for
-# runtime connectivity would cut off the Lambda's only network path.
-resource "terraform_data" "retire_dedicated_vpc_gate" {
-  count = var.retire_dedicated_vpc ? 1 : 0
-
-  lifecycle {
-    precondition {
-      condition     = local.shared_tenancy
-      error_message = "retire_dedicated_vpc requires shared_vpc_id to be set: the API Lambda must already be running in shared-tenancy mode before its dedicated VPC rollback net can be destroyed."
-    }
-  }
+  # The API Lambda's network placement: the shared default VPC's private egress
+  # subnets, behind this module's own egress-only security group in that VPC.
+  # There is no per-environment VPC to fall back to (see networking.tf), so both
+  # shared-VPC inputs are required.
+  lambda_subnet_ids         = var.shared_private_subnet_ids
+  lambda_security_group_ids = [aws_security_group.api_shared.id]
 }
 
 output "naming_prefix" {

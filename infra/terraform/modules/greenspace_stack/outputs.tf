@@ -1,38 +1,8 @@
 # ---------- Networking ----------
 
-output "vpc_id" {
-  description = "ID of the dedicated VPC. Null once `retire_dedicated_vpc` has destroyed it."
-  value       = try(aws_vpc.main[0].id, null)
-}
-
-output "public_subnet_ids" {
-  description = "IDs of the public subnets. Empty once `retire_dedicated_vpc` has destroyed them."
-  value       = aws_subnet.public[*].id
-}
-
-output "private_subnet_ids" {
-  description = "IDs of the private subnets. Empty once `retire_dedicated_vpc` has destroyed them."
-  value       = aws_subnet.private[*].id
-}
-
 output "api_security_group_id" {
-  description = "Security group ID the API Lambda actually runs behind: the shared-VPC egress-only SG in shared-tenancy mode, otherwise the dedicated-VPC API SG."
-  value       = local.lambda_security_group_ids[0]
-}
-
-output "db_security_group_id" {
-  description = "Security group ID for the RDS database. Null once `retire_dedicated_vpc` has destroyed it."
-  value       = try(aws_security_group.db[0].id, null)
-}
-
-output "vpc_cidr" {
-  description = "CIDR block of the dedicated VPC. The shared-db side consumes this when adding the accepter-side route and RDS SG ingress for the peering connection. Null once `retire_dedicated_vpc` has destroyed the VPC (the peering it served is torn down first, in shared-tenancy mode). Account ID and region are not exposed; the shared-db side derives them from its own provider under the same-account assumption."
-  value       = try(aws_vpc.main[0].cidr_block, null)
-}
-
-output "shared_db_peering_connection_id" {
-  description = "ID of the VPC peering connection to the shared-RDS VPC. Null when `shared_db_vpc_id` is not set or while in shared-tenancy mode (peering is torn down)."
-  value       = try(aws_vpc_peering_connection.shared_db[0].id, null)
+  description = "ID of the egress-only security group the API Lambda runs behind in the shared VPC."
+  value       = aws_security_group.api_shared.id
 }
 
 # ---------- IAM ----------

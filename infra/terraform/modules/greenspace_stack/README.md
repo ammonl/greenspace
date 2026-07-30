@@ -7,56 +7,35 @@ the staging and production environment stacks.
 
 | File             | Resources                                                  |
 |------------------|------------------------------------------------------------|
-| `networking.tf`  | Dedicated VPC (gated, retirable), public/private subnets, internet gateway, VPC endpoints, shared-VPC egress-only SG |
-| `peering.tf`     | Optional VPC peering to the shared-RDS VPC (gated)         |
+| `networking.tf`  | Egress-only API Lambda security group in the shared VPC    |
 | `iam.tf`         | API runtime role, CI deploy role, CI Terraform role        |
 | `ses.tf`         | SES configuration set (domain identity + DKIM owned by un17hub) |
 | `dns.tf`         | No resources (Route 53 zone + SES/DKIM records owned by un17hub) |
-| `monitoring.tf`  | CloudWatch log groups, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated), VPC flow logs (gated, retirable) |
-
-## Shared-RDS connectivity
-
-`peering.tf` provides an opt-in private path from the API Lambda to the
-shared RDS instance owned by `ammonl/un17-infra-shared`. The peering is
-gated on `shared_db_vpc_id` **and** on not being in shared-tenancy mode: when
-`shared_db_vpc_id` is null (the default) or `shared_vpc_id` is set, no peering
-resources are created (see [Shared-VPC tenancy](#shared-vpc-tenancy)). See
-`docs/adr/0001-shared-rds-connectivity.md` for the full context.
-
-To activate, set both inputs in the environment config:
-
-```hcl
-shared_db_vpc_id   = "vpc-xxxxxxxx"  # default VPC of the shared-db account
-shared_db_vpc_cidr = "172.31.0.0/16" # CIDR of that VPC
-```
-
-The shared-db side must independently add its accepter-side route, RDS SG
-ingress from the Greenspace VPC CIDR, and
-`accepter.allow_remote_vpc_dns_resolution = true` for traffic to flow.
+| `monitoring.tf`  | CloudWatch log group, SNS alarm topic, metric alarms, dashboard (alarms/dashboard gated) |
 
 ## Shared-VPC tenancy
 
-When `shared_vpc_id` (and `shared_private_subnet_ids`) are set, the API Lambda
-runs **inside the shared default VPC** owned by `ammonl/un17-infra-shared`
-instead of this environment's dedicated VPC. This is the account-wide VPC
-consolidation: greenspace has no dedicated database, so it is a networking-only
-move.
+The API Lambda runs **inside the shared default VPC** owned by
+`ammonl/un17-infra-shared`. This is the account-wide VPC consolidation:
+greenspace has no dedicated database, so it was a networking-only move.
 
-In this mode the module:
+The module:
 
-- attaches the Lambda's `vpc_config` to `shared_private_subnet_ids` with a new
+- attaches the Lambda's `vpc_config` to `shared_private_subnet_ids` with an
   egress-only security group (`aws_security_group.api_shared`) created in the
+  shared VPC — the only network resource it owns there;
+- creates **no** VPC interface endpoints: SES and Secrets Manager are reached
+  over the shared NAT gateway, and tenants must not create endpoints in the
   shared VPC;
-- does **not** create the dedicated VPC interface endpoints (SES + Secrets
-  Manager) — those services are reached over the shared NAT gateway;
-- tears down the shared-db peering — the shared RDS lives in the same VPC, so
+- needs **no** peering for the DB path: the shared RDS lives in the same VPC, so
   DB traffic stays internal and its security group already admits the shared VPC
-  CIDR. Keep `shared_db_vpc_id`/`shared_db_vpc_cidr` **set** (not removed): the
-  peering is gated off by tenancy mode, not by dropping the inputs, so that
-  rollback recreates it in one step.
+  CIDR.
 
-The dedicated VPC and subnets are left in place, dormant, as the rollback net.
-Consume the shared VPC / subnet IDs from SSM at plan time — do not hardcode:
+`shared_vpc_id` and `shared_private_subnet_ids` are **required** — there is no
+dedicated VPC to fall back to (see [Dedicated VPC
+retirement](#dedicated-vpc-retirement)), so omitting either fails at plan time
+on variable validation rather than silently leaving the Lambda without a network
+path. Consume them from SSM at plan time — do not hardcode:
 
 ```hcl
 data "aws_ssm_parameter" "shared_vpc_id" {
@@ -77,50 +56,38 @@ The CI Terraform (plan) role reads these parameters via a scoped
 `ssm:GetParameter`/`GetParameters` grant on
 `arn:aws:ssm:*:*:parameter/shared/network/*` in the bootstrap policy.
 
-To roll back, remove the two `shared_*` inputs: the Lambda moves back into the
-dedicated VPC and the interface endpoints **and the shared-db peering** recreate
-(the peering inputs were retained, so DB connectivity is restored in the same
-apply). This rollback is only available while `retire_dedicated_vpc` is
-`false` — see below.
-
 ## Dedicated VPC retirement
 
-`retire_dedicated_vpc` destroys the dedicated VPC and everything that exists
-only to serve it — subnets, route tables, the internet gateway, the
-dedicated-VPC security groups (`aws_security_group.api` and `.db`), and VPC
-flow logs (log group, IAM role, and the `aws_flow_log` itself). It is gated on
-`shared_tenancy` being already active in **two** places: a `lifecycle
-precondition` on `terraform_data.retire_dedicated_vpc_gate` fails the plan
-loudly if `shared_vpc_id` is not set, and `local.dedicated_vpc_count` itself
-requires both conditions — so a config mistake (`retire_dedicated_vpc = true`
-without `shared_vpc_id`) can't silently strand the Lambda's only network path
-even if the precondition were ever bypassed.
+Each environment used to run the API Lambda in its own VPC (`10.0.0.0/16`
+staging, `10.1.0.0/16` prod), with private subnets, an internet gateway, SES and
+Secrets Manager interface endpoints, its own security groups, VPC flow logs, and
+a peering connection to the shared-RDS VPC. All of it was destroyed once the
+shared-tenancy move validated in each environment.
 
-```hcl
-retire_dedicated_vpc = true  # requires shared_vpc_id to already be set
-```
+The retirement ran behind a `retire_dedicated_vpc` gate, which left the destroyed
+resources declared at `count = 0` and a revert documented as supported. **That
+rollback path is now closed** — the gated resources, `peering.tf`, the gate
+variable and its precondition, the dedicated-VPC inputs, and the outputs
+describing the destroyed resources are deleted. See
+`docs/adr/0002-close-dedicated-vpc-rollback-path.md` for the decision, and
+`docs/adr/0001-shared-rds-connectivity.md` for the superseded peering model.
 
-There is no dedicated database to retire (greenspace has run on shared-db
-since #347) and therefore no soak period: retire each environment as soon as
-its shared-tenancy move (`shared_vpc_id` / `shared_private_subnet_ids`) has
-validated. Staging and prod retire independently — this module has no
-cross-environment state — with the actual apply ordering enforced by the
-`terraform.yml` workflow (staging applies first; prod applies behind the
-`production` GitHub environment's manual approval).
-
-Retirement is otherwise a one-way door — reverting `retire_dedicated_vpc` to
-`false` recreates a *fresh* dedicated VPC (new IDs), it does not restore the
-destroyed one.
-
-Module outputs that describe the dedicated VPC (`vpc_id`, `vpc_cidr`,
-`db_security_group_id`) resolve to `null` once retired; `public_subnet_ids`
-and `private_subnet_ids` resolve to empty lists.
+Reverting the gate would only ever have built a *fresh* dedicated VPC with new
+ids and a new CIDR, not restored the destroyed one, and the peering half could
+not have worked at all once `un17-infra-shared` dropped its accepter-side grants.
+Undoing the shared-VPC move now means restoring the deleted resources from git
+history, choosing fresh CIDRs, and — because the CI Terraform role is defined by
+the stack it applies — granting the VPC-lifecycle permissions out of band before
+the plan that reintroduces them can run (see the note in `iam.tf`).
 
 ## Monitoring & seasonal alarms
 
-CloudWatch log groups and VPC flow logs are always provisioned. The SNS alarm
-topic, its email subscription, and all CloudWatch metric alarms are gated by
+The API CloudWatch log group is always provisioned. The SNS alarm topic, its
+email subscription, and all CloudWatch metric alarms are gated by
 `enable_alarms`; the operational dashboard is gated by `enable_dashboard`.
+
+VPC flow logs are not provisioned — the shared VPC is owned by
+`ammonl/un17-infra-shared`, which owns its flow logs too.
 
 Alarms are **seasonal**: the platform only runs an active registration window
 for part of the year, so alarms are turned off out of season to avoid noise and
@@ -186,6 +153,15 @@ SES send permissions are scoped to SES identities in this account and region
 (see below), so it is not a module-managed resource; the identity-ARN pattern
 keeps the runtime role's send scope tight without depending on it.
 
+The CI Terraform role's EC2 surface is limited to the one network resource this
+module owns in the shared VPC: the `SharedVpcSecurityGroup` statement grants the
+security-group lifecycle, its tags, and the four reads that resolve the Lambda's
+`vpc_config` — nothing that could create a VPC, subnet, gateway, endpoint,
+route, flow log, or peering connection. `iam.tftest.hcl` asserts the granted
+`ec2:` set against an explicit allowlist rather than denying known-bad actions,
+so a wildcard (`ec2:*`) or an action nobody thought to name fails too. Widen the
+allowlist deliberately, in the same change as the resource that needs it.
+
 ## SES email configuration
 
 The SES **domain identity and DKIM signing** for `un17hub.com` — which, via
@@ -216,14 +192,10 @@ its records propagate.
 | Variable                      | Description                                          |
 |-------------------------------|------------------------------------------------------|
 | `environment`                 | Deployment environment name (staging, prod)          |
-| `vpc_cidr`                    | CIDR block for the VPC                               |
 | `ses_sender_domain`           | Sender domain / Amplify custom domain (SES identity + zone owned by un17hub repo) |
 | `ses_reply_to_email`          | Default Reply-To (defaults to `elise7284@gmail.com`) |
-| `shared_db_vpc_id`            | Shared-RDS VPC ID; null disables peering             |
-| `shared_db_vpc_cidr`          | Shared-RDS VPC CIDR (required when peering enabled)  |
-| `shared_vpc_id`               | Shared default VPC ID; non-null runs the Lambda in shared-tenancy mode |
-| `shared_private_subnet_ids`   | Shared VPC private subnet IDs (required in tenancy mode) |
-| `retire_dedicated_vpc`        | Destroys the dedicated VPC and its dependents; requires `shared_vpc_id` to already be set |
+| `shared_vpc_id`               | Shared default VPC ID the Lambda runs in (required)  |
+| `shared_private_subnet_ids`   | Shared VPC private subnet IDs (required, non-empty)  |
 | `enable_alarms`               | Seasonal toggle for SNS topic + all CloudWatch alarms |
 | `enable_dashboard`            | Toggle for the CloudWatch operational dashboard      |
 
@@ -232,5 +204,5 @@ See `variables.tf` for the full list with descriptions and defaults.
 ## Testing
 
 ```bash
-terraform test  # Runs iam*.tftest.hcl (least-privilege validation) and retirement.tftest.hcl (retirement gate)
+terraform test  # Runs iam*.tftest.hcl (least-privilege + CI policy drift guards)
 ```

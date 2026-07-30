@@ -15,82 +15,9 @@ resource "aws_cloudwatch_log_group" "api" {
   }
 }
 
-# ---------- VPC Flow Logs ----------
-#
-# Exist only to serve the dedicated VPC, so they're destroyed alongside it on
-# retirement.
-
-resource "aws_cloudwatch_log_group" "vpc_flow" {
-  count = local.dedicated_vpc_count
-
-  name              = "/${local.naming_prefix}/vpc-flow"
-  retention_in_days = var.log_retention_days
-
-  tags = {
-    Name = "${local.naming_prefix}-vpc-flow-logs"
-  }
-}
-
-data "aws_iam_policy_document" "vpc_flow_assume" {
-  count = local.dedicated_vpc_count
-
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["vpc-flow-logs.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "vpc_flow" {
-  count = local.dedicated_vpc_count
-
-  name               = "${local.naming_prefix}-vpc-flow-logs"
-  assume_role_policy = data.aws_iam_policy_document.vpc_flow_assume[0].json
-
-  tags = {
-    Name = "${local.naming_prefix}-vpc-flow-logs"
-  }
-}
-
-data "aws_iam_policy_document" "vpc_flow_permissions" {
-  count = local.dedicated_vpc_count
-
-  statement {
-    effect = "Allow"
-    actions = [
-      "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:DescribeLogGroups",
-      "logs:DescribeLogStreams",
-    ]
-    resources = ["${aws_cloudwatch_log_group.vpc_flow[0].arn}:*"]
-  }
-}
-
-resource "aws_iam_role_policy" "vpc_flow" {
-  count = local.dedicated_vpc_count
-
-  name   = "flow-log-write"
-  role   = aws_iam_role.vpc_flow[0].id
-  policy = data.aws_iam_policy_document.vpc_flow_permissions[0].json
-}
-
-resource "aws_flow_log" "vpc" {
-  count = local.dedicated_vpc_count
-
-  vpc_id          = aws_vpc.main[0].id
-  traffic_type    = "ALL"
-  log_destination = aws_cloudwatch_log_group.vpc_flow[0].arn
-  iam_role_arn    = aws_iam_role.vpc_flow[0].arn
-
-  tags = {
-    Name = "${local.naming_prefix}-vpc-flow"
-  }
-}
+# Flow logs are not provisioned: the shared VPC is owned by
+# `ammonl/un17-infra-shared`, which owns its flow logs too. This module's only
+# resource in that VPC is the Lambda's egress-only security group.
 
 # ---------- SNS Topic for Alarm Notifications ----------
 

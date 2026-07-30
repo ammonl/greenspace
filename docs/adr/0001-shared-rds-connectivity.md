@@ -1,7 +1,13 @@
 # 0001 — Greenspace runtime connectivity to shared RDS via VPC peering
 
-Status: accepted
+Status: superseded by [0002 — Close the dedicated-VPC rollback path](0002-close-dedicated-vpc-rollback-path.md)
 Date: 2026-05-10
+
+> The peering model below is retired. The API Lambda now runs inside the shared
+> default VPC (#471) and reaches the shared RDS over that VPC's internal
+> network, so the dedicated per-environment VPCs — and the peering that gave
+> them a DB path — were destroyed (#472) and their configuration and CI grants
+> removed (#501). This ADR is kept for the decision record.
 
 ## Context
 
