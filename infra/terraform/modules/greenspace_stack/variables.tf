@@ -15,90 +15,31 @@ variable "environment" {
   type        = string
 }
 
-# ---------- Networking ----------
-
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC."
-  type        = string
-
-  validation {
-    condition     = can(cidrhost(var.vpc_cidr, 0))
-    error_message = "vpc_cidr must be a valid CIDR block."
-  }
-}
-
-variable "availability_zones" {
-  description = "List of availability zones for subnet placement."
-  type        = list(string)
-
-  validation {
-    condition     = length(var.availability_zones) >= 2
-    error_message = "At least 2 availability zones required for HA."
-  }
-}
-
-variable "public_subnet_cidrs" {
-  description = "CIDR blocks for public subnets (one per AZ)."
-  type        = list(string)
-}
-
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets (one per AZ)."
-  type        = list(string)
-}
-
-variable "shared_db_vpc_id" {
-  description = "VPC ID of the shared-RDS VPC owned by `ammonl/un17-infra-shared`. When non-null, this module establishes a VPC peering connection from this environment's VPC to that one for runtime DB access. When null, no peering resources are created."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.shared_db_vpc_id == null || can(regex("^vpc-[a-f0-9]+$", var.shared_db_vpc_id))
-    error_message = "shared_db_vpc_id must be a valid AWS VPC ID (vpc-...) or null."
-  }
-}
-
-variable "shared_db_vpc_cidr" {
-  description = "CIDR block of the shared-RDS VPC. Required when `shared_db_vpc_id` is set; the private route table gets a route to this CIDR via the peering connection."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.shared_db_vpc_cidr == null || can(cidrhost(var.shared_db_vpc_cidr, 0))
-    error_message = "shared_db_vpc_cidr must be a valid CIDR block or null."
-  }
-}
-
 # ---------- Shared-VPC tenancy ----------
 
 variable "shared_vpc_id" {
-  description = "VPC ID of the shared default VPC owned by `ammonl/un17-infra-shared`. When non-null, the API Lambda runs in shared-tenancy mode: it attaches to the published shared private subnets with its own egress-only security group in this VPC, and the dedicated VPC interface endpoints and shared-db peering are not created. When null (the default), the Lambda runs in this environment's dedicated VPC. Consume from SSM (`/shared/network/vpc-id`) at plan time — do not hardcode."
+  description = "VPC ID of the shared default VPC owned by `ammonl/un17-infra-shared`. The API Lambda attaches to the published shared private subnets with its own egress-only security group in this VPC. Required — there is no per-environment VPC to fall back to. Consume from SSM (`/shared/network/vpc-id`) at plan time — do not hardcode."
   type        = string
-  default     = null
 
   validation {
-    condition     = var.shared_vpc_id == null || can(regex("^vpc-[a-f0-9]+$", var.shared_vpc_id))
-    error_message = "shared_vpc_id must be a valid AWS VPC ID (vpc-...) or null."
+    condition     = can(regex("^vpc-[a-f0-9]+$", var.shared_vpc_id))
+    error_message = "shared_vpc_id must be a valid AWS VPC ID (vpc-...)."
   }
 }
 
 variable "shared_private_subnet_ids" {
-  description = "Private egress subnet IDs in the shared VPC that the API Lambda attaches to in shared-tenancy mode. Required when `shared_vpc_id` is set. Consume from SSM (`/shared/network/private-subnet-ids`) at plan time — do not hardcode."
+  description = "Private egress subnet IDs in the shared VPC that the API Lambda attaches to. Required and non-empty — the Lambda's vpc_config has no other subnets to use. Consume from SSM (`/shared/network/private-subnet-ids`) at plan time — do not hardcode."
   type        = list(string)
-  default     = []
+
+  validation {
+    condition     = length(var.shared_private_subnet_ids) > 0
+    error_message = "shared_private_subnet_ids must be non-empty; the Lambda vpc_config needs subnets in the shared VPC."
+  }
 
   validation {
     condition     = alltrue([for id in var.shared_private_subnet_ids : can(regex("^subnet-[a-f0-9]+$", id))])
     error_message = "shared_private_subnet_ids must all be valid AWS subnet IDs (subnet-...)."
   }
-}
-
-# ---------- Dedicated VPC retirement ----------
-
-variable "retire_dedicated_vpc" {
-  description = "Retirement gate: when true, this environment's dedicated VPC and everything that exists only to serve it (subnets, route tables, internet gateway, dedicated-VPC security groups, VPC flow logs) are destroyed. Requires the environment to already be in shared-tenancy mode (`shared_vpc_id` set) — enforced by a plan-time precondition. Defaults to false, leaving the dedicated VPC in place as the shared-tenancy rollback net."
-  type        = bool
-  default     = false
 }
 
 # ---------- IAM / CI ----------

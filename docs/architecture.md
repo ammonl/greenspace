@@ -353,14 +353,18 @@ shared VPC:
   longer created; tenants must not create endpoints in the shared VPC.
 
 Immediately after the tenancy move, the dedicated VPCs (10.0.0.0/16 staging,
-10.1.0.0/16 prod) stayed in place, dormant, as the rollback net: the
-shared-db peering was torn down while in shared-tenancy mode, but its inputs
-(`shared_db_vpc_id` / `shared_db_vpc_cidr`) stayed set so reverting
-`shared_vpc_id` / `shared_private_subnet_ids` in a single step would move the
-Lambda back into the dedicated VPC and recreate both the interface endpoints
-and the peering. See `docs/adr/0001-shared-rds-connectivity.md` for the
-original peering decision record and `docs/runbooks/shared-rds-migration.md`
-for the data-migration runbook used during the RDS cutover.
+10.1.0.0/16 prod) stayed in place, dormant, as the rollback net. They were
+destroyed once each environment validated (#472), and their configuration
+removed outright in #501 — see [Dedicated VPC retirement](#dedicated-vpc-retirement)
+below. `shared_vpc_id` and `shared_private_subnet_ids` are therefore **required**
+module inputs: there is no dedicated VPC left to fall back to, so an environment
+that omits them fails at plan time on variable validation.
+
+See `docs/adr/0002-close-dedicated-vpc-rollback-path.md` for the decision that
+closed the rollback path, `docs/adr/0001-shared-rds-connectivity.md` for the
+superseded peering decision record, and
+`docs/runbooks/shared-rds-migration.md` for the data-migration runbook used
+during the RDS cutover.
 
 Two external preconditions had to hold before the cutover apply — the
 shared-db side owns both and neither is enforced by this module:
@@ -376,16 +380,35 @@ shared-db side owns both and neither is enforced by this module:
 
 Once each environment's shared-tenancy move validated, its dedicated VPC was
 destroyed (#472): the VPC itself, its subnets, route tables, internet gateway,
-dedicated-VPC security groups, and VPC flow logs. There is no dedicated
-database to retire (greenspace has run on shared-db since #347), so there was
-no soak period — each environment retired as soon as its move validated.
+interface endpoints, dedicated-VPC security groups, and VPC flow logs. There is
+no dedicated database to retire (greenspace has run on shared-db since #347), so
+there was no soak period — each environment retired as soon as its move
+validated.
 
-Retirement is a per-environment `retire_dedicated_vpc` module input, gated on
-`shared_vpc_id` already being set (enforced by a plan-time precondition, with
-the underlying resource count itself requiring both conditions as a second
-line of defense). It is a one-way door: reverting `retire_dedicated_vpc`
-recreates a *fresh* dedicated VPC rather than restoring the destroyed one, so
-it is no longer usable as a shared-tenancy rollback net.
+The retirement was gated behind a `retire_dedicated_vpc` module input while it
+was in flight, which left the destroyed resources declared at `count = 0` and
+the rollback documented as supported. That rollback path is now **closed**
+(#501, `docs/adr/0002-close-dedicated-vpc-rollback-path.md`): the gated
+resources, `peering.tf`, the gate variable and its precondition, and the module
+outputs describing the destroyed resources are all deleted. Reverting the gate
+would only ever have built a *fresh* dedicated VPC with new ids and a new CIDR
+rather than restoring the destroyed one, and the peering half could not have
+worked at all once `un17-infra-shared` dropped its accepter-side grants
+(ammonl/un17-infra-shared#93).
+
+Undoing the shared-VPC move now means restoring the deleted resources from git
+history and choosing fresh CIDRs — and, because the CI Terraform role is defined
+by the stack it applies, granting the VPC-lifecycle permissions out of band
+before the plan that reintroduces them can run (see the note in `iam.tf`). That
+cost is accepted deliberately.
+
+With the configuration gone, the CI Terraform role was pruned to match: its
+`VPCNetworking` statement — 49 EC2 actions covering the VPC lifecycle, subnets,
+gateways, endpoints, route tables, flow logs, and the whole peering set —
+becomes `SharedVpcSecurityGroup`, holding only the security-group lifecycle, its
+tags, and the four reads that resolve the Lambda's `vpc_config`. An allowlist
+assert in `iam.tftest.hcl` (ported from `ammonl/un17-resources`) fails the build
+if any other `ec2:` action is granted, including a bare `ec2:*`.
 
 Remaining cleanup — the accepter-side `greenspace_peering` ingress and routes
 on the shared-db side — is tracked as a follow-up in `un17-infra-shared`.
@@ -481,14 +504,12 @@ infra/terraform/
         ├── dns.tf             No resources (zone + records owned by un17hub)
         ├── iam.tf             IAM roles and policies
         ├── monitoring.tf      CloudWatch, Alarms, Dashboard, SNS
-        ├── networking.tf      VPC, subnets, gateways (dedicated VPC gated + retirable)
+        ├── networking.tf      Egress-only Lambda SG in the shared VPC
         ├── outputs.tf         Module outputs
-        ├── peering.tf         Optional VPC peering to the shared-RDS VPC (gated)
         ├── ses.tf             SES configuration set (identity + DKIM owned by un17hub)
         ├── variables.tf       Input variables
         ├── iam.tftest.hcl     Least-privilege IAM validation tests
-        ├── iam_bootstrap.tftest.hcl  CI bootstrap policy drift guards
-        └── retirement.tftest.hcl    Dedicated VPC retirement gate tests
+        └── iam_bootstrap.tftest.hcl  CI bootstrap policy drift guards
 ```
 
 ### CI/CD Pipeline

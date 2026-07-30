@@ -46,11 +46,10 @@ override_data {
 }
 
 variables {
-  environment          = "test"
-  vpc_cidr             = "10.99.0.0/16"
-  availability_zones   = ["eu-north-1a", "eu-north-1b"]
-  public_subnet_cidrs  = ["10.99.1.0/24", "10.99.2.0/24"]
-  private_subnet_cidrs = ["10.99.10.0/24", "10.99.11.0/24"]
+  environment = "test"
+
+  shared_vpc_id             = "vpc-908203f9"
+  shared_private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
 
   ses_sender_domain = "test.example.com"
 

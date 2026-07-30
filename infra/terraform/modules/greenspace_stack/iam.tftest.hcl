@@ -1,4 +1,6 @@
-# Validates that IAM policies do not use wildcard resources.
+# Validates that IAM policies do not use wildcard resources, and that the CI
+# Terraform role's EC2 surface stays limited to what the stack actually owns in
+# the shared VPC.
 # Run with: terraform test
 
 provider "aws" {
@@ -28,15 +30,52 @@ override_data {
 }
 
 variables {
-  environment          = "test"
-  vpc_cidr             = "10.99.0.0/16"
-  availability_zones   = ["eu-north-1a", "eu-north-1b"]
-  public_subnet_cidrs  = ["10.99.1.0/24", "10.99.2.0/24"]
-  private_subnet_cidrs = ["10.99.10.0/24", "10.99.11.0/24"]
+  environment = "test"
+
+  shared_vpc_id             = "vpc-908203f9"
+  shared_private_subnet_ids = ["subnet-0aaaaaaaaaaaaaaaa", "subnet-0bbbbbbbbbbbbbbbb"]
 
   ses_sender_domain = "test.example.com"
 
   github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+}
+
+run "ec2_grants_limited_to_the_security_group" {
+  command = plan
+
+  # This module owns exactly one EC2 resource in the shared VPC — an egress-only
+  # security group — so the CI role's whole EC2 surface is small enough to
+  # enumerate. Assert the granted set against that allowlist rather than denying
+  # known-bad actions: a denylist only ever catches what its author thought to
+  # list, while an allowlist also rejects `ec2:*`, a wildcard prefix, and every
+  # VPC/subnet/gateway/endpoint/route/peering/instance/flow-log action nobody has
+  # named yet. Deny statements are exempt — a guard on what the role may be
+  # *granted* must not reject an explicit deny.
+  assert {
+    condition = length(setsubtract(
+      toset(flatten([
+        for s in jsondecode(data.aws_iam_policy_document.ci_terraform_resources.json).Statement :
+        [for a in flatten([s.Action]) : a if startswith(a, "ec2:")]
+        if s.Effect == "Allow"
+      ])),
+      toset([
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSecurityGroupRules",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:DescribeTags",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeVpcAttribute",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeNetworkInterfaces",
+      ])
+    )) == 0
+    error_message = "CI Terraform role EC2 grants must stay limited to the shared VPC security group: its lifecycle, its tags, and the reads that resolve the Lambda's vpc_config. Everything else in that VPC belongs to `un17-infra-shared`. Widen this allowlist deliberately, alongside the resource that needs it."
+  }
 }
 
 run "ses_policy_uses_scoped_arns" {

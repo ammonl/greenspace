@@ -157,7 +157,7 @@ Each environment defines a `ci-terraform` IAM role assumed via GitHub OIDC (`aws
 | `TF_ROLE_ARN_STAGING` | OIDC role ARN for staging plan/apply    |
 | `TF_ROLE_ARN_PROD`    | OIDC role ARN for production plan/apply |
 
-The roles grant least-privilege access to the S3 state backend, DynamoDB lock table, and the specific AWS resources managed by Terraform (VPC, IAM, CloudWatch Logs, Lambda, RDS, Secrets Manager).
+The roles grant least-privilege access to the S3 state backend, DynamoDB lock table, and the specific AWS resources managed by Terraform (the Lambda's security group in the shared VPC, IAM, CloudWatch Logs, Lambda, RDS, Secrets Manager).
 
 ### Required PR status checks
 
@@ -196,7 +196,7 @@ Alarm notifications are delivered via SNS email subscription (configured via `al
 
 A CloudWatch dashboard aggregates Lambda, RDS, and SES metrics.
 
-Alarms and the dashboard are provisioned only in production. Staging sets `enable_alarms = false` and `enable_dashboard = false` on the shared module, so it ships with log groups and VPC flow logs only.
+Alarms and the dashboard are provisioned only in production. Staging sets `enable_alarms = false` and `enable_dashboard = false` on the shared module, so it ships with the API log group only.
 
 **Drift detection** runs daily via `.github/workflows/drift-detection.yml`. If Terraform detects infrastructure drift, a GitHub issue is created automatically.
 

@@ -264,59 +264,45 @@ resource "aws_iam_role_policy" "ci_terraform_state" {
 }
 
 data "aws_iam_policy_document" "ci_terraform_resources" {
+  # The API Lambda runs in the shared default VPC, whose id and private subnet
+  # ids the environment roots read from SSM. The only network resource this
+  # module owns there is an egress-only security group, so this statement is
+  # scoped to that group: its lifecycle, the tags it carries, and the reads that
+  # resolve the Lambda's `vpc_config`. Nothing wider belongs here — the shared
+  # VPC's subnets, route tables, gateways, and endpoints are owned by
+  # `un17-infra-shared`, and tenants must not create endpoint or NAT resources
+  # in it.
+  #
+  # The resource stays `*` for two different reasons: the Describe actions have
+  # no resource-level support at all, and the group's id is not known until it
+  # has been created.
+  #
+  # The group is egress-only, so of the rule-authorizing pair only the egress
+  # half is granted: it carries no ingress rules to authorize, and a destroy
+  # takes the rules it does carry with it. `ec2:ModifySecurityGroupRules` is
+  # deliberately absent — it is what an in-place edit of an existing egress
+  # rule's description, protocol, or port range needs, and nothing here edits
+  # one. Grant it alongside the change that first does, not ahead of it: it
+  # addresses a rule by id with no direction in the request, so on `*` it can
+  # rewrite an existing *ingress* rule on any group in the account, including
+  # ones `un17-infra-shared` owns.
   statement {
-    sid    = "VPCNetworking"
+    sid    = "SharedVpcSecurityGroup"
     effect = "Allow"
     actions = [
-      "ec2:CreateVpc",
-      "ec2:DeleteVpc",
-      "ec2:DescribeVpcs",
-      "ec2:DescribeVpcAttribute",
-      "ec2:ModifyVpcAttribute",
-      "ec2:CreateSubnet",
-      "ec2:DeleteSubnet",
-      "ec2:DescribeSubnets",
-      "ec2:ModifySubnetAttribute",
-      "ec2:CreateInternetGateway",
-      "ec2:DeleteInternetGateway",
-      "ec2:AttachInternetGateway",
-      "ec2:DetachInternetGateway",
-      "ec2:DescribeInternetGateways",
-      "ec2:CreateVpcEndpoint",
-      "ec2:DeleteVpcEndpoints",
-      "ec2:ModifyVpcEndpoint",
-      "ec2:DescribeVpcEndpoints",
-      "ec2:DescribeVpcEndpointServices",
-      "ec2:DescribePrefixLists",
-      "ec2:CreateRouteTable",
-      "ec2:DeleteRouteTable",
-      "ec2:DescribeRouteTables",
-      "ec2:CreateRoute",
-      "ec2:DeleteRoute",
-      "ec2:ReplaceRoute",
-      "ec2:AssociateRouteTable",
-      "ec2:DisassociateRouteTable",
       "ec2:CreateSecurityGroup",
       "ec2:DeleteSecurityGroup",
       "ec2:DescribeSecurityGroups",
       "ec2:DescribeSecurityGroupRules",
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:RevokeSecurityGroupIngress",
       "ec2:AuthorizeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupEgress",
-      "ec2:CreateFlowLogs",
-      "ec2:DeleteFlowLogs",
-      "ec2:DescribeFlowLogs",
       "ec2:CreateTags",
       "ec2:DeleteTags",
       "ec2:DescribeTags",
+      "ec2:DescribeVpcs",
+      "ec2:DescribeVpcAttribute",
+      "ec2:DescribeSubnets",
       "ec2:DescribeNetworkInterfaces",
-      "ec2:DescribeAvailabilityZones",
-      "ec2:CreateVpcPeeringConnection",
-      "ec2:AcceptVpcPeeringConnection",
-      "ec2:DeleteVpcPeeringConnection",
-      "ec2:ModifyVpcPeeringConnectionOptions",
-      "ec2:DescribeVpcPeeringConnections",
     ]
     resources = ["*"]
   }
