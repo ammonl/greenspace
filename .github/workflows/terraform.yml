@@ -46,7 +46,7 @@ jobs:
 
       - name: Terraform test
         working-directory: infra/terraform/modules/greenspace_stack
-        run: terraform test -no-color -filter=retirement.tftest.hcl -filter=iam_bootstrap.tftest.hcl -filter=iam.tftest.hcl
+        run: terraform test -no-color -filter=retirement.tftest.hcl -filter=iam_bootstrap.tftest.hcl -filter=iam.tftest.hcl -filter=log_encryption.tftest.hcl
 
   # --------------- Pull Request: plan per environment ---------------
 
