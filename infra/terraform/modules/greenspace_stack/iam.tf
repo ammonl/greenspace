@@ -357,31 +357,54 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
     resources = ["*"]
   }
 
-  statement {
-    sid    = "KMSKeys"
-    effect = "Allow"
-    actions = [
-      "kms:CreateKey",
-      "kms:DescribeKey",
-      "kms:GetKeyPolicy",
-      "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags",
-      "kms:PutKeyPolicy",
-      "kms:EnableKeyRotation",
-      "kms:DisableKeyRotation",
-      "kms:TagResource",
-      "kms:UntagResource",
-      "kms:ScheduleKeyDeletion",
-      "kms:CreateAlias",
-      "kms:DeleteAlias",
-      "kms:ListAliases",
-      "kms:UpdateAlias",
-      "kms:Decrypt",
-      "kms:GenerateDataKey",
-    ]
-    resources = ["*"]
-  }
+  # There is no KMS statement here, and that is the whole surface: the role's only
+  # `kms:` grants are the bootstrap policy's `Describe*` / `Get*` / `List*` reads,
+  # which exist for plan refresh.
+  #
+  # This module manages no KMS key, alias, or key policy, so the key-lifecycle
+  # grants went with the key. `kms:GenerateDataKey` went too — it is encrypt-side,
+  # and nothing this role writes lands under a *customer-managed* key. Note the
+  # distinction, because one of these is not KMS-free: the Terraform state bucket
+  # does default to SSE-KMS (`bootstrap/main.tf` sets `sse_algorithm = "aws:kms"`),
+  # and the backend blocks request `encrypt = true` with no `kms_key_id`. Either
+  # the backend's AES256 request overrides the bucket default, or it falls through
+  # to the AWS-managed `aws/s3` key — whose policy admits same-account callers
+  # through `kms:ViaService` with no IAM-side grant. Both paths need nothing here.
+  # The lock table takes DynamoDB's AWS-owned key, the log groups CloudWatch's, and
+  # the Lambda's environment variables the AWS-managed `aws/lambda` key.
+  #
+  # `kms:Decrypt` was the last one out, and only after checking what actually
+  # reads through it. Both environment roots read the shared-VPC tenancy contract
+  # from SSM (`/shared/network/*`) on every plan, which would have needed the grant
+  # had either parameter been a `SecureString` under a customer-managed key. They
+  # are not — `vpc-id` is a `String` and `private-subnet-ids` a `StringList`, both
+  # with no `KeyId`, so nothing on that path decrypts at all.
+  #
+  # Three changes would each make a removed grant load-bearing again, and every
+  # one of them needs it restored out of band *first* (see the two-phase note
+  # below), because the plan that would restore it is the plan that fails:
+  #
+  #   - A customer-managed key on the DynamoDB lock table. This is the worst of
+  #     the three. `dynamodb:GetItem`/`PutItem` is the state lock, so it runs on
+  #     every plan and every apply in both environments, and it would fail before
+  #     anything else got a chance to. (`server_side_encryption { enabled = true }`
+  #     with no key ARN is the AWS-managed `aws/dynamodb` key and is fine — only a
+  #     CMK breaks it.)
+  #   - A customer-managed key on the Terraform state bucket, which fails at
+  #     backend init.
+  #   - Publishing the shared-network parameters as `SecureString` under a CMK,
+  #     which fails when the environment roots read them.
+  #
+  # A CMK on the Lambda is a lesser case worth knowing but not guarding: it does
+  # not lock CI out. `GetFunctionConfiguration` returns `Environment.Error`
+  # instead of failing, so the symptom is a permanent phantom `environment` diff
+  # on every plan rather than an error.
 
+  # No `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`: the log groups take
+  # CloudWatch's AWS-owned default key and set no `kms_key_id`, so nothing here
+  # binds a key to a log group. Granting either is only meaningful alongside a
+  # customer-managed key, which is the posture `log_encryption.tftest.hcl`
+  # rejects — reintroduce them together or not at all.
   statement {
     sid    = "CloudWatchLogs"
     effect = "Allow"
@@ -396,8 +419,6 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
       "logs:ListTagsForResource",
       "logs:TagResource",
       "logs:UntagResource",
-      "logs:AssociateKmsKey",
-      "logs:DisassociateKmsKey",
     ]
     resources = [
       "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${local.naming_prefix}/*",
@@ -492,33 +513,21 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
     ]
   }
 
-  statement {
-    sid    = "SecretsManager"
-    effect = "Allow"
-    actions = [
-      "secretsmanager:CreateSecret",
-      "secretsmanager:DeleteSecret",
-      "secretsmanager:DescribeSecret",
-      "secretsmanager:GetSecretValue",
-      "secretsmanager:PutSecretValue",
-      "secretsmanager:UpdateSecret",
-      "secretsmanager:TagResource",
-      "secretsmanager:UntagResource",
-      "secretsmanager:GetResourcePolicy",
-      "secretsmanager:PutResourcePolicy",
-      "secretsmanager:DeleteResourcePolicy",
-    ]
-    resources = [
-      "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.naming_prefix}-*",
-    ]
-  }
-
-  statement {
-    sid       = "SecretsManagerList"
-    effect    = "Allow"
-    actions   = ["secretsmanager:ListSecrets"]
-    resources = ["*"]
-  }
+  # No Secrets Manager statement either. This module manages no secret — #397
+  # deleted `database.tf`, taking `aws_secretsmanager_secret.db_credentials` and
+  # `.app` with it — so the create/write/delete grants it used to hold on
+  # `${local.naming_prefix}-*` had nothing to act on. The one secret the stack
+  # still reads is the shared-db secret, which belongs to `un17-infra-shared`,
+  # is read at runtime rather than at plan time, and is granted on the API
+  # runtime role above, not here — note it is named `rds/shared/greenspace_<env>`,
+  # so the removed statement's `${local.naming_prefix}-*` scope could never have
+  # covered it anyway.
+  #
+  # Refresh coverage for an `aws_secretsmanager_secret` added later comes from the
+  # bootstrap policy's `secretsmanager:Describe*` / `List*`. An
+  # `aws_secretsmanager_secret_version` is the exception: it refreshes through
+  # `GetSecretValue`, which nothing grants this role, so that one needs its
+  # permission landed first like any other new resource type.
 
   statement {
     sid    = "SNSManage"
@@ -747,9 +756,26 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
   # Lambda in the shared VPC.
   #
   # Scoped to the shared/network parameter path rather than folded into
-  # `RefreshReads` above: that statement grants on `Resource = "*"`, and
-  # combined with the `kms:Decrypt` grant in `terraform-resources` a wildcard
-  # SSM read would expose every SecureString parameter in the account.
+  # `RefreshReads` above, which grants on `Resource = "*"`: a wildcard SSM read
+  # would expose every parameter in the account, `SecureString` ones included.
+  #
+  # That hazard does *not* depend on holding `kms:Decrypt`, which the role no
+  # longer does. `alias/aws/ssm` — what a `SecureString` gets unless it is given a
+  # customer-managed key — grants decrypt to any same-account caller through
+  # `kms:ViaService` in its own key policy, with no IAM-side grant required. So
+  # `ssm:GetParameter` with `WithDecryption` on `*` is sufficient by itself, and
+  # this scoping is the only thing preventing it.
+  #
+  # Removing `kms:Decrypt` did narrow the hypothetical blast radius, just not to
+  # zero: a `SecureString` under a *customer-managed* key whose policy delegates
+  # to the account root was readable with the grant and is not without it. That
+  # subset is the exception. Everything under the default key still reads.
+  #
+  # This statement is also a floor, not just a ceiling. Both environment roots
+  # read these two parameters through `data.aws_ssm_parameter` on every plan, so
+  # deleting it fails `terraform plan` in both environments — and the role cannot
+  # restore it, because the plan that would is the one that fails.
+  # `iam.tftest.hcl` asserts its presence for that reason.
   statement {
     sid    = "SharedNetworkSsmRead"
     effect = "Allow"
@@ -767,4 +793,32 @@ resource "aws_iam_role_policy" "ci_terraform_bootstrap" {
   name   = "terraform-resources-bootstrap"
   role   = aws_iam_role.ci_terraform.id
   policy = data.aws_iam_policy_document.ci_terraform_bootstrap.json
+}
+
+# ---------- CI Terraform role: granted-action surface ----------
+#
+# Every action the CI Terraform role is allowed, unioned across all three of its
+# inline policies. IAM evaluates them together, so this — not any one document —
+# is the role's real permission surface, and it is what the grant guards in
+# `iam.tftest.hcl` and `log_encryption.tftest.hcl` assert against.
+#
+# It lives here rather than in each test because `.tftest.hcl` files take no
+# `locals` block, and hand-copying this expression into every assertion is how a
+# guard ends up checking something narrower than its error message claims: the
+# first version of the KMS guards read only `ci_terraform_resources` while
+# reporting on "the CI Terraform role", so the very grants they existed to reject
+# passed when added to `terraform-state`. One definition, one surface.
+#
+# Two details are load-bearing. `flatten([s.Action])` because
+# `aws_iam_policy_document` renders a single-element `Action` as a bare string
+# rather than a list. And `s.Effect == "Allow"`, because a guard on what the role
+# may be *granted* must not trip over an explicit deny (`DenySelfModify`).
+locals {
+  ci_terraform_granted_actions = toset(flatten([
+    for doc in [
+      data.aws_iam_policy_document.ci_terraform_state.json,
+      data.aws_iam_policy_document.ci_terraform_resources.json,
+      data.aws_iam_policy_document.ci_terraform_bootstrap.json,
+    ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
+  ]))
 }

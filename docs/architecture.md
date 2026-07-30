@@ -448,13 +448,47 @@ aws kms put-key-policy      --key-id <key-arn> --policy-name default \
 
 The policy needs to re-grant `logs.<region>.amazonaws.com` at least
 `kms:Decrypt` and `kms:DescribeKey` under the original `ArnLike` condition on
-`kms:EncryptionContext:aws:logs:arn`. The CI Terraform role holds neither
-`kms:CancelKeyDeletion` nor `kms:EnableKey`, so this needs an admin principal.
-After the window closes the key is gone and so is the data.
+`kms:EncryptionContext:aws:logs:arn`. The CI Terraform role holds none of
+`kms:CancelKeyDeletion`, `kms:EnableKey`, or `kms:PutKeyPolicy`, so this needs
+an admin principal. After the window closes the key is gone and so is the data.
 
-Each apply also drops a few seconds of log events: Terraform orders the KMS
-destroys ahead of the in-place update that disassociates the log group, so
-`PutLogEvents` is denied between the key-policy reset and `DisassociateKmsKey`.
+Each of those applies also dropped a few seconds of log events: Terraform orders
+the KMS destroys ahead of the in-place update that disassociates the log group,
+so `PutLogEvents` was denied between the key-policy reset and
+`DisassociateKmsKey`.
+
+With the removal applied in both environments, the CI Terraform role's grants
+that existed only to manage the key are gone as well — the key-lifecycle set,
+`logs:AssociateKmsKey` / `logs:DisassociateKmsKey`, and both data-plane actions.
+The role's entire remaining `kms:` surface is the bootstrap policy's
+`Describe*`/`Get*`/`List*` plan-refresh reads.
+
+`kms:Decrypt` went last, and only after checking what reads through it. The
+environment roots read the shared-VPC tenancy contract from SSM on every plan,
+which would have needed the grant had either parameter been a `SecureString`
+under a customer-managed key. Neither is: `/shared/network/vpc-id` is a `String`
+and `/shared/network/private-subnet-ids` a `StringList`, both with no `KeyId`.
+Everything else the role touches sits under an AWS-owned or AWS-managed key —
+the state bucket, the lock table, the log groups, the Lambda's environment
+variables — and those need no IAM-side grant, because an AWS-managed key's own
+policy admits same-account callers through `kms:ViaService`.
+
+That last point cuts both ways, and there is a trap in it worth naming. Because
+`alias/aws/ssm` grants decrypt through `kms:ViaService` with no IAM grant
+required, dropping `kms:Decrypt` barely narrows what an over-broad SSM read would
+expose: `ssm:GetParameter` with `WithDecryption` on `*` still returns every
+`SecureString` under the default key, which is every `SecureString` not
+explicitly given a customer-managed one. Only that CMK subset became unreadable.
+The path scoping on the bootstrap policy's `SharedNetworkSsmRead` statement is
+what prevents the rest, and it is load-bearing independently of any KMS grant.
+
+`log_encryption.tftest.hcl` and `iam.tftest.hcl` hold the line across **all
+three** of the role's inline policies, not one — IAM unions them, so a guard
+reading a single document proves nothing about the role. Between them they cap
+the granted `kms:`, `ec2:`, and `secretsmanager:` sets against explicit
+allowlists, reject both `logs:` key-binding actions, and reject a bare `*` or
+`service:*` that would confer any of the above without naming it. Rebuilding a
+key means widening a guard deliberately.
 
 The SNS alarm topic is left unencrypted at rest, and `alias/aws/sns` is
 specifically not the fix. Per the [SNS key management

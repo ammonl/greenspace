@@ -140,16 +140,49 @@ aws kms put-key-policy      --key-id <key-arn> --policy-name default \
 where `logs-key-policy.json` re-grants `logs.<region>.amazonaws.com` at minimum
 `kms:Decrypt` and `kms:DescribeKey`, under the original `ArnLike` condition on
 `kms:EncryptionContext:aws:logs:arn` scoped to `log-group:/<naming_prefix>/*`.
-The CI Terraform role cannot run any of this — `iam.tf` grants neither
-`kms:CancelKeyDeletion` nor `kms:EnableKey`, so recovery needs an admin
-principal. The key ARNs are recorded on the follow-up ticket, since the apply
-deletes the aliases and removes the output.
+The CI Terraform role cannot run any of this — `iam.tf` grants it none of
+`kms:CancelKeyDeletion`, `kms:EnableKey`, or `kms:PutKeyPolicy`, so recovery
+needs an admin principal. The key ARNs are recorded on the follow-up ticket,
+since the apply deletes the aliases and removes the output.
 
-Note also that each apply drops log events for a few seconds. Terraform orders
-the KMS destroys **before** the in-place update that disassociates the log
-group, so between the key policy reset and the `DisassociateKmsKey` call
-`PutLogEvents` is denied. The apply does not fail, and out of season the gap is
-usually empty, but new events in that window are lost.
+Note also that each of those applies dropped log events for a few seconds.
+Terraform orders the KMS destroys **before** the in-place update that
+disassociates the log group, so between the key policy reset and the
+`DisassociateKmsKey` call `PutLogEvents` was denied. The apply did not fail, and
+out of season the gap was probably empty, but new events in that window are lost.
+
+With the removal applied in both environments, the CI Terraform role's grants
+that existed only to manage the key are gone as well: the whole key-lifecycle
+set, `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`, and both data-plane
+actions. The role's entire remaining `kms:` surface is the bootstrap policy's
+`Describe*`/`Get*`/`List*` plan-refresh reads.
+
+`kms:Decrypt` went last and needed checking first, because the environment roots
+read the shared-VPC tenancy contract from SSM on every plan. It turned out dead:
+`/shared/network/vpc-id` is a `String` and `/shared/network/private-subnet-ids` a
+`StringList`, neither with a `KeyId`, so nothing on that path decrypts.
+Everything else the role touches — the state bucket, the lock table, the log
+groups, the Lambda's environment variables — sits under an AWS-owned or
+AWS-managed key, and an AWS-managed key's own policy admits same-account callers
+through `kms:ViaService` with no IAM-side grant. See the comment where the KMS
+statement used to be in `iam.tf`.
+
+**Do not read that as "the SSM read is now safe on `*`."** The same
+`kms:ViaService` behavior means `alias/aws/ssm` decrypts for any same-account
+caller without an IAM grant, so an unscoped `ssm:GetParameter` with
+`WithDecryption` would still return every `SecureString` under the default key —
+which is every `SecureString` not explicitly given a customer-managed one. Only
+that CMK subset became unreadable when `kms:Decrypt` went. The path scoping on
+the bootstrap policy's `SharedNetworkSsmRead` statement is what prevents the
+rest, and it does not depend on any KMS grant.
+
+`log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **all three**
+inline policies on the role — `terraform-state`, `terraform-resources`, and
+`terraform-resources-bootstrap` — because IAM unions them, so a guard that reads
+one document proves nothing about the role. They share a single definition of the
+role's granted surface (`local.ci_terraform_granted_actions` in `iam.tf`), which
+exists because the first version of these guards hand-copied the expression and
+ended up checking one document while its error message spoke for the role.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.
@@ -187,10 +220,42 @@ The CI Terraform role's EC2 surface is limited to the one network resource this
 module owns in the shared VPC: the `SharedVpcSecurityGroup` statement grants the
 security-group lifecycle, its tags, and the four reads that resolve the Lambda's
 `vpc_config` — nothing that could create a VPC, subnet, gateway, endpoint,
-route, flow log, or peering connection. `iam.tftest.hcl` asserts the granted
-`ec2:` set against an explicit allowlist rather than denying known-bad actions,
-so a wildcard (`ec2:*`) or an action nobody thought to name fails too. Widen the
-allowlist deliberately, in the same change as the resource that needs it.
+route, flow log, or peering connection.
+
+Three services are held to explicit allowlists this way — `ec2:` and
+`secretsmanager:` in `iam.tftest.hcl`, `kms:` in `log_encryption.tftest.hcl` —
+plus a flat rejection of both `logs:` key-binding actions. Allowlists rather than
+denylists, so an action nobody thought to name fails too, and a separate
+assertion rejects a bare `*` or a `service:*` that would confer the whole set
+without naming any of it. Widen an allowlist deliberately, in the same change as
+the resource that needs it.
+
+Four properties of these guards are worth keeping if they are ever rewritten:
+
+- They read **all three inline policies**, via `local.ci_terraform_granted_actions`
+  in `iam.tf`, because IAM unions them — and because `terraform-state` carries no
+  shape guard of its own, so a guard reading only `terraform-resources` passes on
+  anything hidden there.
+- They tolerate the two shapes `aws_iam_policy_document` actually produces: a
+  single-element `Action` renders as a bare string rather than a list, and an
+  explicit `Deny` (`DenySelfModify`) must not trip a guard on what may be
+  *granted*.
+- The wildcard rejection is what lets the rest match on names. Without it every
+  allowlist above is defeated by one character.
+- Most are ceilings, but at least one must be a **floor**. An apply can always
+  take a grant away; a role that has lost a permission its own plan depends on
+  cannot get it back, because the plan that would restore it is the one that
+  fails. `ci_terraform_role_keeps_the_shared_network_ssm_read` covers the grant
+  currently in that position.
+
+**Known gap.** `local.ci_terraform_granted_actions` names its three policy
+documents literally, so it is only the role's full surface for as long as the
+role has exactly those three inline policies. A fourth `aws_iam_role_policy` — or
+any `aws_iam_role_policy_attachment` — is invisible to every guard above,
+verifiably so: attaching one that grants a bare `*` leaves the suite green.
+Closing it properly means attaching the policies with `for_each` over the same
+map the guards read, so adding one without guarding it becomes impossible. That
+is a state-address change needing `moved` blocks, tracked separately.
 
 ## SES email configuration
 
