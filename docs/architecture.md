@@ -475,11 +475,12 @@ policy admits same-account callers through `kms:ViaService`.
 
 That last point cuts both ways, and there is a trap in it worth naming. Because
 `alias/aws/ssm` grants decrypt through `kms:ViaService` with no IAM grant
-required, dropping `kms:Decrypt` does **not** narrow what an over-broad SSM read
-would expose — `ssm:GetParameter --with-decryption` on `*` would still return
-every `SecureString` in the account. The scoping on the bootstrap policy's
-`SharedNetworkSsmRead` statement is the only thing preventing that, and it is
-load-bearing independently of any KMS grant.
+required, dropping `kms:Decrypt` barely narrows what an over-broad SSM read would
+expose: `ssm:GetParameter` with `WithDecryption` on `*` still returns every
+`SecureString` under the default key, which is every `SecureString` not
+explicitly given a customer-managed one. Only that CMK subset became unreadable.
+The path scoping on the bootstrap policy's `SharedNetworkSsmRead` statement is
+what prevents the rest, and it is load-bearing independently of any KMS grant.
 
 `log_encryption.tftest.hcl` and `iam.tftest.hcl` hold the line across **all
 three** of the role's inline policies, not one — IAM unions them, so a guard

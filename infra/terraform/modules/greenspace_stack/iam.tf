@@ -380,11 +380,25 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
   # are not — `vpc-id` is a `String` and `private-subnet-ids` a `StringList`, both
   # with no `KeyId`, so nothing on that path decrypts at all.
   #
-  # What none of this survives is someone pointing the state bucket at a
-  # customer-managed key, or publishing the shared-network parameters as
-  # `SecureString` under one. Either change needs the matching grant restored out
-  # of band *first* (see the two-phase note below), because the plan that would
-  # restore it is the one that fails.
+  # Three changes would each make a removed grant load-bearing again, and every
+  # one of them needs it restored out of band *first* (see the two-phase note
+  # below), because the plan that would restore it is the plan that fails:
+  #
+  #   - A customer-managed key on the DynamoDB lock table. This is the worst of
+  #     the three. `dynamodb:GetItem`/`PutItem` is the state lock, so it runs on
+  #     every plan and every apply in both environments, and it would fail before
+  #     anything else got a chance to. (`server_side_encryption { enabled = true }`
+  #     with no key ARN is the AWS-managed `aws/dynamodb` key and is fine — only a
+  #     CMK breaks it.)
+  #   - A customer-managed key on the Terraform state bucket, which fails at
+  #     backend init.
+  #   - Publishing the shared-network parameters as `SecureString` under a CMK,
+  #     which fails when the environment roots read them.
+  #
+  # A CMK on the Lambda is a lesser case worth knowing but not guarding: it does
+  # not lock CI out. `GetFunctionConfiguration` returns `Environment.Error`
+  # instead of failing, so the symptom is a permanent phantom `environment` diff
+  # on every plan rather than an error.
 
   # No `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`: the log groups take
   # CloudWatch's AWS-owned default key and set no `kms_key_id`, so nothing here
@@ -505,8 +519,15 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
   # `${local.naming_prefix}-*` had nothing to act on. The one secret the stack
   # still reads is the shared-db secret, which belongs to `un17-infra-shared`,
   # is read at runtime rather than at plan time, and is granted on the API
-  # runtime role above, not here. Refresh coverage for any secret added later
-  # comes from the bootstrap policy's `secretsmanager:Describe*` / `List*`.
+  # runtime role above, not here — note it is named `rds/shared/greenspace_<env>`,
+  # so the removed statement's `${local.naming_prefix}-*` scope could never have
+  # covered it anyway.
+  #
+  # Refresh coverage for an `aws_secretsmanager_secret` added later comes from the
+  # bootstrap policy's `secretsmanager:Describe*` / `List*`. An
+  # `aws_secretsmanager_secret_version` is the exception: it refreshes through
+  # `GetSecretValue`, which nothing grants this role, so that one needs its
+  # permission landed first like any other new resource type.
 
   statement {
     sid    = "SNSManage"
@@ -738,12 +759,23 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
   # `RefreshReads` above, which grants on `Resource = "*"`: a wildcard SSM read
   # would expose every parameter in the account, `SecureString` ones included.
   #
-  # That hazard does *not* depend on holding `kms:Decrypt` — the role no longer
-  # does, and the exposure is unchanged. `alias/aws/ssm`, which is what a
-  # `SecureString` gets unless it is given a customer-managed key, grants decrypt
-  # to any same-account caller through `kms:ViaService` in its own key policy,
-  # with no IAM-side grant required. So `ssm:GetParameter --with-decryption` on
-  # `*` is sufficient by itself. This scoping is the only thing preventing it.
+  # That hazard does *not* depend on holding `kms:Decrypt`, which the role no
+  # longer does. `alias/aws/ssm` — what a `SecureString` gets unless it is given a
+  # customer-managed key — grants decrypt to any same-account caller through
+  # `kms:ViaService` in its own key policy, with no IAM-side grant required. So
+  # `ssm:GetParameter` with `WithDecryption` on `*` is sufficient by itself, and
+  # this scoping is the only thing preventing it.
+  #
+  # Removing `kms:Decrypt` did narrow the hypothetical blast radius, just not to
+  # zero: a `SecureString` under a *customer-managed* key whose policy delegates
+  # to the account root was readable with the grant and is not without it. That
+  # subset is the exception. Everything under the default key still reads.
+  #
+  # This statement is also a floor, not just a ceiling. Both environment roots
+  # read these two parameters through `data.aws_ssm_parameter` on every plan, so
+  # deleting it fails `terraform plan` in both environments — and the role cannot
+  # restore it, because the plan that would is the one that fails.
+  # `iam.tftest.hcl` asserts its presence for that reason.
   statement {
     sid    = "SharedNetworkSsmRead"
     effect = "Allow"

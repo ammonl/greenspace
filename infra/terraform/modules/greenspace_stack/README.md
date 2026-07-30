@@ -169,10 +169,12 @@ statement used to be in `iam.tf`.
 
 **Do not read that as "the SSM read is now safe on `*`."** The same
 `kms:ViaService` behavior means `alias/aws/ssm` decrypts for any same-account
-caller without an IAM grant, so an unscoped `ssm:GetParameter --with-decryption`
-would still return every `SecureString` in the account. The path scoping on the
-bootstrap policy's `SharedNetworkSsmRead` statement is what prevents that, and it
-does not depend on any KMS grant.
+caller without an IAM grant, so an unscoped `ssm:GetParameter` with
+`WithDecryption` would still return every `SecureString` under the default key —
+which is every `SecureString` not explicitly given a customer-managed one. Only
+that CMK subset became unreadable when `kms:Decrypt` went. The path scoping on
+the bootstrap policy's `SharedNetworkSsmRead` statement is what prevents the
+rest, and it does not depend on any KMS grant.
 
 `log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **all three**
 inline policies on the role — `terraform-state`, `terraform-resources`, and
@@ -228,18 +230,32 @@ assertion rejects a bare `*` or a `service:*` that would confer the whole set
 without naming any of it. Widen an allowlist deliberately, in the same change as
 the resource that needs it.
 
-Three properties of these guards are worth keeping if they are ever rewritten:
+Four properties of these guards are worth keeping if they are ever rewritten:
 
-- They read **the role**, not a policy document. `local.ci_terraform_granted_actions`
-  in `iam.tf` unions all three inline policies, because IAM does — and because
-  `terraform-state` carries no shape guard of its own, so a guard reading only
-  `terraform-resources` passes on anything hidden there.
+- They read **all three inline policies**, via `local.ci_terraform_granted_actions`
+  in `iam.tf`, because IAM unions them — and because `terraform-state` carries no
+  shape guard of its own, so a guard reading only `terraform-resources` passes on
+  anything hidden there.
 - They tolerate the two shapes `aws_iam_policy_document` actually produces: a
   single-element `Action` renders as a bare string rather than a list, and an
   explicit `Deny` (`DenySelfModify`) must not trip a guard on what may be
   *granted*.
 - The wildcard rejection is what lets the rest match on names. Without it every
   allowlist above is defeated by one character.
+- Most are ceilings, but at least one must be a **floor**. An apply can always
+  take a grant away; a role that has lost a permission its own plan depends on
+  cannot get it back, because the plan that would restore it is the one that
+  fails. `ci_terraform_role_keeps_the_shared_network_ssm_read` covers the grant
+  currently in that position.
+
+**Known gap.** `local.ci_terraform_granted_actions` names its three policy
+documents literally, so it is only the role's full surface for as long as the
+role has exactly those three inline policies. A fourth `aws_iam_role_policy` — or
+any `aws_iam_role_policy_attachment` — is invisible to every guard above,
+verifiably so: attaching one that grants a bare `*` leaves the suite green.
+Closing it properly means attaching the policies with `for_each` over the same
+map the guards read, so adding one without guarding it becomes impossible. That
+is a state-address change needing `moved` blocks, tracked separately.
 
 ## SES email configuration
 

@@ -129,6 +129,29 @@ run "secretsmanager_grants_limited_to_refresh_reads" {
   }
 }
 
+# The guards above are ceilings — they cap what the role may hold. This one is a
+# floor, and it covers the direction another apply cannot fix: a grant can always
+# be taken away by the next apply, but a role that has lost a permission its own
+# plan depends on cannot get it back, because the plan that would restore it is
+# the one that fails. Recovery is the out-of-band `put-role-policy` in `iam.tf`.
+#
+# `kms:Decrypt` used to sit in that position and had a floor guard of its own
+# until it turned out to be dead (#509). These two SSM reads now occupy it: both
+# environment roots resolve `/shared/network/*` through `data.aws_ssm_parameter`
+# on every plan. The state-access grants in `terraform-state` are in the same
+# position and are worth covering the same way if this is ever extended.
+run "ci_terraform_role_keeps_the_shared_network_ssm_read" {
+  command = plan
+
+  assert {
+    condition = length(setsubtract(
+      toset(["ssm:GetParameter", "ssm:GetParameters"]),
+      local.ci_terraform_granted_actions
+    )) == 0
+    error_message = "The CI Terraform role must keep ssm:GetParameter and ssm:GetParameters. Both environment roots read /shared/network/vpc-id and /shared/network/private-subnet-ids via data.aws_ssm_parameter on every plan, so dropping either action fails terraform plan in both environments — and the role cannot grant it back to itself. Remove this only alongside the last data source that reads SSM."
+  }
+}
+
 run "ses_policy_uses_scoped_arns" {
   command = plan
 
