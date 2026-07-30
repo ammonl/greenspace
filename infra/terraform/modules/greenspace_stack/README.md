@@ -232,10 +232,11 @@ the resource that needs it.
 
 Four properties of these guards are worth keeping if they are ever rewritten:
 
-- They read **all three inline policies**, via `local.ci_terraform_granted_actions`
-  in `iam.tf`, because IAM unions them — and because `terraform-state` carries no
-  shape guard of its own, so a guard reading only `terraform-resources` passes on
-  anything hidden there.
+- They read **every inline policy the role has**, via
+  `local.ci_terraform_granted_actions` in `iam.tf`, which is derived from the
+  same map the policies are attached from — because IAM unions them, and because
+  `terraform-state` carries no shape guard of its own, so a guard reading only
+  `terraform-resources` passes on anything hidden there.
 - They tolerate the two shapes `aws_iam_policy_document` actually produces: a
   single-element `Action` renders as a bare string rather than a list, and an
   explicit `Deny` (`DenySelfModify`) must not trip a guard on what may be
@@ -248,14 +249,19 @@ Four properties of these guards are worth keeping if they are ever rewritten:
   fails. `ci_terraform_role_keeps_the_shared_network_ssm_read` covers the grant
   currently in that position.
 
-**Known gap.** `local.ci_terraform_granted_actions` names its three policy
-documents literally, so it is only the role's full surface for as long as the
-role has exactly those three inline policies. A fourth `aws_iam_role_policy` — or
-any `aws_iam_role_policy_attachment` — is invisible to every guard above,
-verifiably so: attaching one that grants a bare `*` leaves the suite green.
-Closing it properly means attaching the policies with `for_each` over the same
-map the guards read, so adding one without guarding it becomes impossible. That
-is a state-address change needing `moved` blocks, tracked separately.
+The guard source and the attachment source are the same object: the role's
+inline policies are attached with `for_each` over `local.ci_terraform_policies`
+in `iam.tf`, and `ci_terraform_granted_actions` is derived from the same map.
+Adding a policy to the role means adding a map entry, and the guards see that
+entry in the same plan — there is no second policy list to keep in sync.
+
+One boundary remains, and it is structural: HCL cannot enumerate "every policy
+resource pointing at this role", so a grant that reaches the role without going
+through the map stays invisible to the guards. That is a standalone
+`aws_iam_role_policy` resource declared outside the `for_each`, or an
+`aws_iam_role_policy_attachment` (managed policy — the role carries none
+today). Either bypass takes a new resource block that has no business in
+`iam.tf`, which review can see; treat adding one as a change to the guards too.
 
 ## SES email configuration
 

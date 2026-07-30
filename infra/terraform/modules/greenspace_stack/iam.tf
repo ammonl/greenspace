@@ -257,12 +257,6 @@ data "aws_iam_policy_document" "ci_terraform_state" {
   }
 }
 
-resource "aws_iam_role_policy" "ci_terraform_state" {
-  name   = "terraform-state"
-  role   = aws_iam_role.ci_terraform.id
-  policy = data.aws_iam_policy_document.ci_terraform_state.json
-}
-
 data "aws_iam_policy_document" "ci_terraform_resources" {
   # The API Lambda runs in the shared default VPC, whose id and private subnet
   # ids the environment roots read from SSM. The only network resource this
@@ -634,12 +628,6 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
   }
 }
 
-resource "aws_iam_role_policy" "ci_terraform_resources" {
-  name   = "terraform-resources"
-  role   = aws_iam_role.ci_terraform.id
-  policy = data.aws_iam_policy_document.ci_terraform_resources.json
-}
-
 # ---------- CI Terraform Bootstrap Policy ----------
 #
 # Permanent companion to `terraform-resources` whose sole purpose is to break
@@ -789,18 +777,19 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
   }
 }
 
-resource "aws_iam_role_policy" "ci_terraform_bootstrap" {
-  name   = "terraform-resources-bootstrap"
-  role   = aws_iam_role.ci_terraform.id
-  policy = data.aws_iam_policy_document.ci_terraform_bootstrap.json
-}
-
-# ---------- CI Terraform role: granted-action surface ----------
+# ---------- CI Terraform role: inline policies + granted-action surface ----------
 #
-# Every action the CI Terraform role is allowed, unioned across all three of its
-# inline policies. IAM evaluates them together, so this — not any one document —
-# is the role's real permission surface, and it is what the grant guards in
-# `iam.tftest.hcl` and `log_encryption.tftest.hcl` assert against.
+# The map below is both the attachment source (the `for_each` on
+# `aws_iam_role_policy.ci_terraform`) and the guard source
+# (`ci_terraform_granted_actions`), so adding a policy to the role means adding
+# a map entry, and a map entry is attached and guarded by the same expression.
+# There is no second copy of the policy list to fall out of sync.
+#
+# `ci_terraform_granted_actions` is every action the CI Terraform role is
+# allowed, unioned across all of its inline policies. IAM evaluates them
+# together, so this — not any one document — is the role's real permission
+# surface, and it is what the grant guards in `iam.tftest.hcl` and
+# `log_encryption.tftest.hcl` assert against.
 #
 # It lives here rather than in each test because `.tftest.hcl` files take no
 # `locals` block, and hand-copying this expression into every assertion is how a
@@ -809,16 +798,53 @@ resource "aws_iam_role_policy" "ci_terraform_bootstrap" {
 # reporting on "the CI Terraform role", so the very grants they existed to reject
 # passed when added to `terraform-state`. One definition, one surface.
 #
+# The guards read this map and nothing else, so a grant that reaches the role
+# without going through it stays invisible to them: a standalone
+# `aws_iam_role_policy` resource declared alongside this one, or an
+# `aws_iam_role_policy_attachment` (managed policy — the role carries none).
+# HCL has no way to enumerate "every policy resource pointing at this role", so
+# that boundary is structural. What the map buys is that the one in-pattern way
+# to add a policy is guarded by construction; either bypass takes a new resource
+# block that has no business in this file, which review can see.
+#
 # Two details are load-bearing. `flatten([s.Action])` because
 # `aws_iam_policy_document` renders a single-element `Action` as a bare string
 # rather than a list. And `s.Effect == "Allow"`, because a guard on what the role
 # may be *granted* must not trip over an explicit deny (`DenySelfModify`).
 locals {
+  ci_terraform_policies = {
+    "terraform-state"               = data.aws_iam_policy_document.ci_terraform_state.json
+    "terraform-resources"           = data.aws_iam_policy_document.ci_terraform_resources.json
+    "terraform-resources-bootstrap" = data.aws_iam_policy_document.ci_terraform_bootstrap.json
+  }
+
   ci_terraform_granted_actions = toset(flatten([
-    for doc in [
-      data.aws_iam_policy_document.ci_terraform_state.json,
-      data.aws_iam_policy_document.ci_terraform_resources.json,
-      data.aws_iam_policy_document.ci_terraform_bootstrap.json,
-    ] : [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
+    for doc in values(local.ci_terraform_policies) :
+    [for s in jsondecode(doc).Statement : flatten([s.Action]) if s.Effect == "Allow"]
   ]))
+}
+
+# `name = each.key` keeps the live policy names exactly as the three standalone
+# resources set them, so this is a state-address change only — the `moved`
+# blocks below carry the existing entries across, and nothing changes on AWS.
+resource "aws_iam_role_policy" "ci_terraform" {
+  for_each = local.ci_terraform_policies
+  name     = each.key
+  role     = aws_iam_role.ci_terraform.id
+  policy   = each.value
+}
+
+moved {
+  from = aws_iam_role_policy.ci_terraform_state
+  to   = aws_iam_role_policy.ci_terraform["terraform-state"]
+}
+
+moved {
+  from = aws_iam_role_policy.ci_terraform_resources
+  to   = aws_iam_role_policy.ci_terraform["terraform-resources"]
+}
+
+moved {
+  from = aws_iam_role_policy.ci_terraform_bootstrap
+  to   = aws_iam_role_policy.ci_terraform["terraform-resources-bootstrap"]
 }
