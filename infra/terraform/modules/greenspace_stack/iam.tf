@@ -357,31 +357,44 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
     resources = ["*"]
   }
 
+  # This module manages no KMS key, alias, or key policy, so it needs no
+  # key-lifecycle grants: `CreateKey`, `PutKeyPolicy`, `EnableKeyRotation`,
+  # `DisableKeyRotation`, `ScheduleKeyDeletion`, `CreateAlias`, `DeleteAlias`,
+  # `UpdateAlias`, `TagResource`, and `UntagResource` are all gone. The
+  # key-shaped reads (`DescribeKey`, `GetKeyPolicy`, `GetKeyRotationStatus`,
+  # `ListResourceTags`, `ListAliases`) are not re-homed either — the bootstrap
+  # policy below already grants `kms:Describe*` / `kms:Get*` / `kms:List*` on
+  # `*` so plan refresh covers any resource type without a code change.
+  #
+  # `kms:GenerateDataKey` is gone with them. It is an encrypt-side action, and
+  # nothing this role writes lands under a customer-managed key: Terraform state
+  # goes to S3 under the bucket's own default encryption, the lock table takes
+  # DynamoDB's default, the log groups take CloudWatch's AWS-owned key, and the
+  # Lambda's environment variables take Lambda's default key. None of those
+  # require a KMS grant on the caller.
+  #
+  # `kms:Decrypt` stays, and is the reason this statement still exists. Both
+  # environment roots read the shared-VPC tenancy contract from SSM
+  # (`/shared/network/*`) on every plan. A `SecureString` there encrypted under a
+  # customer-managed key needs this grant; a plain `String`, or a `SecureString`
+  # under `alias/aws/ssm`, does not — that key's policy admits same-account
+  # callers through `kms:ViaService` on its own. Which one it is, is a fact about
+  # the live parameters rather than about this repository. Retire the grant only
+  # after checking them (`aws ssm describe-parameters` for the type, `KeyId` for
+  # the key): removing it while it is load-bearing fails `terraform plan` in both
+  # environments, and the role cannot then grant it back to itself.
   statement {
-    sid    = "KMSKeys"
-    effect = "Allow"
-    actions = [
-      "kms:CreateKey",
-      "kms:DescribeKey",
-      "kms:GetKeyPolicy",
-      "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags",
-      "kms:PutKeyPolicy",
-      "kms:EnableKeyRotation",
-      "kms:DisableKeyRotation",
-      "kms:TagResource",
-      "kms:UntagResource",
-      "kms:ScheduleKeyDeletion",
-      "kms:CreateAlias",
-      "kms:DeleteAlias",
-      "kms:ListAliases",
-      "kms:UpdateAlias",
-      "kms:Decrypt",
-      "kms:GenerateDataKey",
-    ]
+    sid       = "KMSDecrypt"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
     resources = ["*"]
   }
 
+  # No `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`: the log groups take
+  # CloudWatch's AWS-owned default key and set no `kms_key_id`, so nothing here
+  # binds a key to a log group. Granting either is only meaningful alongside a
+  # customer-managed key, which is the posture `log_encryption.tftest.hcl`
+  # rejects — reintroduce them together or not at all.
   statement {
     sid    = "CloudWatchLogs"
     effect = "Allow"
@@ -396,8 +409,6 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
       "logs:ListTagsForResource",
       "logs:TagResource",
       "logs:UntagResource",
-      "logs:AssociateKmsKey",
-      "logs:DisassociateKmsKey",
     ]
     resources = [
       "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${local.naming_prefix}/*",

@@ -448,13 +448,22 @@ aws kms put-key-policy      --key-id <key-arn> --policy-name default \
 
 The policy needs to re-grant `logs.<region>.amazonaws.com` at least
 `kms:Decrypt` and `kms:DescribeKey` under the original `ArnLike` condition on
-`kms:EncryptionContext:aws:logs:arn`. The CI Terraform role holds neither
-`kms:CancelKeyDeletion` nor `kms:EnableKey`, so this needs an admin principal.
-After the window closes the key is gone and so is the data.
+`kms:EncryptionContext:aws:logs:arn`. The CI Terraform role holds none of
+`kms:CancelKeyDeletion`, `kms:EnableKey`, or `kms:PutKeyPolicy`, so this needs
+an admin principal. After the window closes the key is gone and so is the data.
 
 Each apply also drops a few seconds of log events: Terraform orders the KMS
 destroys ahead of the in-place update that disassociates the log group, so
 `PutLogEvents` is denied between the key-policy reset and `DisassociateKmsKey`.
+
+With the removal applied in both environments, the CI Terraform role's grants
+that existed only to manage the key are gone as well — the key-lifecycle set and
+`logs:AssociateKmsKey` / `logs:DisassociateKmsKey`. `kms:Decrypt` remains: the
+environment roots read the shared-VPC tenancy contract from SSM on every plan,
+and that read needs it if either parameter is a `SecureString` under a
+customer-managed key. `log_encryption.tftest.hcl` asserts the role's `kms:` set
+against that single-action allowlist, so rebuilding a key means widening the
+guard deliberately rather than adding a grant nobody notices.
 
 The SNS alarm topic is left unencrypted at rest, and `alias/aws/sns` is
 specifically not the fix. Per the [SNS key management

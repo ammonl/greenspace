@@ -140,16 +140,26 @@ aws kms put-key-policy      --key-id <key-arn> --policy-name default \
 where `logs-key-policy.json` re-grants `logs.<region>.amazonaws.com` at minimum
 `kms:Decrypt` and `kms:DescribeKey`, under the original `ArnLike` condition on
 `kms:EncryptionContext:aws:logs:arn` scoped to `log-group:/<naming_prefix>/*`.
-The CI Terraform role cannot run any of this — `iam.tf` grants neither
-`kms:CancelKeyDeletion` nor `kms:EnableKey`, so recovery needs an admin
-principal. The key ARNs are recorded on the follow-up ticket, since the apply
-deletes the aliases and removes the output.
+The CI Terraform role cannot run any of this — `iam.tf` grants it none of
+`kms:CancelKeyDeletion`, `kms:EnableKey`, or `kms:PutKeyPolicy`, so recovery
+needs an admin principal. The key ARNs are recorded on the follow-up ticket,
+since the apply deletes the aliases and removes the output.
 
 Note also that each apply drops log events for a few seconds. Terraform orders
 the KMS destroys **before** the in-place update that disassociates the log
 group, so between the key policy reset and the `DisassociateKmsKey` call
 `PutLogEvents` is denied. The apply does not fail, and out of season the gap is
 usually empty, but new events in that window are lost.
+
+With the removal applied in both environments, the CI Terraform role's grants
+that existed only to manage the key are gone as well: the whole key-lifecycle
+set, plus `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`. `kms:Decrypt`
+stays, because the environment roots read the shared-VPC tenancy contract from
+SSM on every plan and a `SecureString` under a customer-managed key would need
+it — see the comment on the `KMSDecrypt` statement in `iam.tf` for what to check
+before retiring it. `log_encryption.tftest.hcl` asserts the role's `kms:` set
+against that single-action allowlist and rejects both `logs:` key-binding
+actions, so rebuilding a key means widening the guard deliberately.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.

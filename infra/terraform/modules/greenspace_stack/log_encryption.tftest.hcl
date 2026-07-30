@@ -1,6 +1,6 @@
 # Guards the log-encryption posture decided in ticket #500: no customer-managed
-# KMS key anywhere in this module, and no server-side encryption on the alarm
-# topic.
+# KMS key anywhere in this module, no server-side encryption on the alarm topic,
+# and no IAM grant on the CI Terraform role that would let one back in.
 #
 # The SNS assertion is the load-bearing one. Setting `kms_master_key_id` back —
 # especially to the AWS-managed `alias/aws/sns` — looks like a strict
@@ -75,5 +75,45 @@ run "api_log_group_uses_default_encryption" {
   assert {
     condition     = aws_cloudwatch_log_group.api.kms_key_id == null
     error_message = "The API log group must not set kms_key_id — CloudWatch's default AWS-owned encryption is the decision recorded in the module README."
+  }
+}
+
+# The CI Terraform role is what would build a replacement key, so the posture
+# above is only as durable as the permissions behind it. Both assertions below
+# guard the grants rather than the resources: without them, the first step back
+# toward a customer-managed key is a quiet one-line addition to `iam.tf` that no
+# other test in this module would notice.
+run "ci_terraform_role_cannot_manage_kms_keys" {
+  command = plan
+
+  assert {
+    # `kms:Decrypt` is the whole allowlist: it serves the SSM SecureString read
+    # in the environment roots, not a key this module owns (see iam.tf). An
+    # allowlist rather than a denylist, so `kms:*`, a wildcard prefix, and every
+    # key-lifecycle action nobody has named here fail alike. Deny statements are
+    # exempt — a guard on what the role may be *granted* must not reject a deny.
+    condition = length(setsubtract(
+      toset(flatten([
+        for s in jsondecode(data.aws_iam_policy_document.ci_terraform_resources.json).Statement :
+        [for a in flatten([s.Action]) : a if startswith(a, "kms:")]
+        if s.Effect == "Allow"
+      ])),
+      toset(["kms:Decrypt"])
+    )) == 0
+    error_message = "The CI Terraform role may hold no KMS grant beyond kms:Decrypt. This module manages no key, alias, or key policy, and the plan-refresh reads come from the bootstrap policy's kms:Describe*/Get*/List*. A key-lifecycle grant here means a customer-managed key is being reintroduced — do that deliberately, alongside the resource that needs it."
+  }
+}
+
+run "ci_terraform_role_cannot_bind_a_key_to_a_log_group" {
+  command = plan
+
+  assert {
+    condition = length([
+      for a in flatten([
+        for s in jsondecode(data.aws_iam_policy_document.ci_terraform_resources.json).Statement :
+        flatten([s.Action]) if s.Effect == "Allow"
+      ]) : a if contains(["logs:AssociateKmsKey", "logs:DisassociateKmsKey"], a)
+    ]) == 0
+    error_message = "The CI Terraform role must not hold logs:AssociateKmsKey or logs:DisassociateKmsKey. The log groups take CloudWatch's AWS-owned key and set no kms_key_id, so these only become meaningful alongside a customer-managed key — the posture the assertions above reject."
   }
 }
