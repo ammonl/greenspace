@@ -176,13 +176,14 @@ that CMK subset became unreadable when `kms:Decrypt` went. The path scoping on
 the bootstrap policy's `SharedNetworkSsmRead` statement is what prevents the
 rest, and it does not depend on any KMS grant.
 
-`log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **all three**
-inline policies on the role — `terraform-state`, `terraform-resources`, and
-`terraform-resources-bootstrap` — because IAM unions them, so a guard that reads
-one document proves nothing about the role. They share a single definition of the
-role's granted surface (`local.ci_terraform_granted_actions` in `iam.tf`), which
-exists because the first version of these guards hand-copied the expression and
-ended up checking one document while its error message spoke for the role.
+`log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **every
+inline policy on the role**, derived from the same `local.ci_terraform_policies`
+map the policies are attached from — because IAM unions them, so a guard that
+reads one document proves nothing about the role. They share a single definition
+of the role's granted surface (`local.ci_terraform_granted_actions` in
+`iam.tf`), which exists because the first version of these guards hand-copied
+the expression and ended up checking one document while its error message spoke
+for the role.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.
@@ -232,10 +233,11 @@ the resource that needs it.
 
 Four properties of these guards are worth keeping if they are ever rewritten:
 
-- They read **all three inline policies**, via `local.ci_terraform_granted_actions`
-  in `iam.tf`, because IAM unions them — and because `terraform-state` carries no
-  shape guard of its own, so a guard reading only `terraform-resources` passes on
-  anything hidden there.
+- They read **every inline policy the role has**, via
+  `local.ci_terraform_granted_actions` in `iam.tf`, which is derived from the
+  same map the policies are attached from — because IAM unions them, and because
+  `terraform-state` carries no shape guard of its own, so a guard reading only
+  `terraform-resources` passes on anything hidden there.
 - They tolerate the two shapes `aws_iam_policy_document` actually produces: a
   single-element `Action` renders as a bare string rather than a list, and an
   explicit `Deny` (`DenySelfModify`) must not trip a guard on what may be
@@ -248,14 +250,21 @@ Four properties of these guards are worth keeping if they are ever rewritten:
   fails. `ci_terraform_role_keeps_the_shared_network_ssm_read` covers the grant
   currently in that position.
 
-**Known gap.** `local.ci_terraform_granted_actions` names its three policy
-documents literally, so it is only the role's full surface for as long as the
-role has exactly those three inline policies. A fourth `aws_iam_role_policy` — or
-any `aws_iam_role_policy_attachment` — is invisible to every guard above,
-verifiably so: attaching one that grants a bare `*` leaves the suite green.
-Closing it properly means attaching the policies with `for_each` over the same
-map the guards read, so adding one without guarding it becomes impossible. That
-is a state-address change needing `moved` blocks, tracked separately.
+The guard source and the attachment source are the same object: the role's
+inline policies are attached with `for_each` over `local.ci_terraform_policies`
+in `iam.tf`, and `ci_terraform_granted_actions` is derived from the same map.
+Adding a policy to the role means adding a map entry, and the guards see that
+entry in the same plan — there is no second policy list to keep in sync.
+
+One boundary remains, and it is structural: HCL cannot enumerate "every policy
+resource pointing at this role", so a grant that reaches the role without going
+through the map stays invisible to the guards. That is a standalone
+`aws_iam_role_policy` resource declared outside the `for_each`, or an
+`aws_iam_role_policy_attachment` (managed policy — the role carries none
+today). The signal to review for is a policy resource whose `role` references
+`aws_iam_role.ci_terraform` from outside the map — not the resource type, since
+`iam.tf` legitimately carries standalone policies for the other roles. Treat
+adding one as a change to the guards too.
 
 ## SES email configuration
 
