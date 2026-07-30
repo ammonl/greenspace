@@ -145,21 +145,30 @@ The CI Terraform role cannot run any of this — `iam.tf` grants it none of
 needs an admin principal. The key ARNs are recorded on the follow-up ticket,
 since the apply deletes the aliases and removes the output.
 
-Note also that each apply drops log events for a few seconds. Terraform orders
-the KMS destroys **before** the in-place update that disassociates the log
-group, so between the key policy reset and the `DisassociateKmsKey` call
-`PutLogEvents` is denied. The apply does not fail, and out of season the gap is
-usually empty, but new events in that window are lost.
+Note also that each of those applies dropped log events for a few seconds.
+Terraform orders the KMS destroys **before** the in-place update that
+disassociates the log group, so between the key policy reset and the
+`DisassociateKmsKey` call `PutLogEvents` was denied. The apply did not fail, and
+out of season the gap was probably empty, but new events in that window are lost.
 
 With the removal applied in both environments, the CI Terraform role's grants
 that existed only to manage the key are gone as well: the whole key-lifecycle
 set, plus `logs:AssociateKmsKey` / `logs:DisassociateKmsKey`. `kms:Decrypt`
 stays, because the environment roots read the shared-VPC tenancy contract from
 SSM on every plan and a `SecureString` under a customer-managed key would need
-it — see the comment on the `KMSDecrypt` statement in `iam.tf` for what to check
-before retiring it. `log_encryption.tftest.hcl` asserts the role's `kms:` set
-against that single-action allowlist and rejects both `logs:` key-binding
-actions, so rebuilding a key means widening the guard deliberately.
+it — see the comment on the `KMSDecrypt` statement in `iam.tf` for the three
+commands that settle whether it is still load-bearing.
+
+`log_encryption.tftest.hcl` guards that posture across **all three** inline
+policies on the role — `terraform-state`, `terraform-resources`, and
+`terraform-resources-bootstrap` — because IAM unions them, so a guard that reads
+one document proves nothing about the role. It caps the granted `kms:` set at
+`kms:Decrypt` plus the bootstrap policy's `Describe*`/`Get*`/`List*` reads,
+rejects both `logs:` key-binding actions, rejects a bare `*` or a `service:*`
+wildcard that would confer either without naming it, and — in the other
+direction — requires `kms:Decrypt` to still be there. That last one is not
+symmetry for its own sake: an apply can always remove a grant, but a role that
+has lost the permission its own plan depends on cannot restore it.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.

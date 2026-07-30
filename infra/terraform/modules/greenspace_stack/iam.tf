@@ -367,22 +367,42 @@ data "aws_iam_policy_document" "ci_terraform_resources" {
   # `*` so plan refresh covers any resource type without a code change.
   #
   # `kms:GenerateDataKey` is gone with them. It is an encrypt-side action, and
-  # nothing this role writes lands under a customer-managed key: Terraform state
-  # goes to S3 under the bucket's own default encryption, the lock table takes
-  # DynamoDB's default, the log groups take CloudWatch's AWS-owned key, and the
-  # Lambda's environment variables take Lambda's default key. None of those
-  # require a KMS grant on the caller.
+  # nothing this role writes lands under a *customer-managed* key. Note the
+  # distinction, because one of these is not KMS-free: the Terraform state bucket
+  # does default to SSE-KMS (`bootstrap/main.tf` sets `sse_algorithm =
+  # "aws:kms"`), and the backend blocks request `encrypt = true` with no
+  # `kms_key_id`. Either the backend's AES256 request overrides the bucket
+  # default, or it falls through to the AWS-managed `aws/s3` key — and that key's
+  # policy admits same-account callers through `kms:ViaService` without any
+  # IAM-side grant, so both paths need nothing here. The lock table takes
+  # DynamoDB's AWS-owned key, the log groups CloudWatch's, and the Lambda's
+  # environment variables the AWS-managed `aws/lambda` key. Same reasoning
+  # throughout.
+  #
+  # What that argument does *not* survive is someone pointing the state bucket at
+  # a customer-managed key. That change needs `kms:GenerateDataKey` and
+  # `kms:Decrypt` granted out of band first (see the two-phase note below), or
+  # backend init fails in both environments.
   #
   # `kms:Decrypt` stays, and is the reason this statement still exists. Both
   # environment roots read the shared-VPC tenancy contract from SSM
   # (`/shared/network/*`) on every plan. A `SecureString` there encrypted under a
   # customer-managed key needs this grant; a plain `String`, or a `SecureString`
-  # under `alias/aws/ssm`, does not — that key's policy admits same-account
-  # callers through `kms:ViaService` on its own. Which one it is, is a fact about
-  # the live parameters rather than about this repository. Retire the grant only
-  # after checking them (`aws ssm describe-parameters` for the type, `KeyId` for
-  # the key): removing it while it is load-bearing fails `terraform plan` in both
-  # environments, and the role cannot then grant it back to itself.
+  # under `alias/aws/ssm`, does not — same `kms:ViaService` reasoning as above.
+  # Which one it is, is a fact about the live parameters rather than about this
+  # repository, so retiring the grant takes three checks, not two:
+  #
+  #   aws ssm describe-parameters --parameter-filters Key=Name,Values=/shared/network/
+  #     -> `Type`: `String` means this grant is already dead. `SecureString`:
+  #   aws ssm get-parameter --name /shared/network/vpc-id --with-decryption
+  #     -> `KeyId`: `alias/aws/ssm` means dead too. A CMK means read on:
+  #   aws kms get-key-policy --key-id <KeyId> --policy-name default
+  #     -> delegates to account root, so this grant is what authorizes the read;
+  #        names principals explicitly instead, and the grant is doing nothing.
+  #
+  # Removing it while it is load-bearing fails `terraform plan` in both
+  # environments, and the role cannot then grant it back to itself — recovery is
+  # the out-of-band `put-role-policy` described in the two-phase note below.
   statement {
     sid       = "KMSDecrypt"
     effect    = "Allow"
