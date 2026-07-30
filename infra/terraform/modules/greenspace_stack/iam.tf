@@ -799,13 +799,13 @@ data "aws_iam_policy_document" "ci_terraform_bootstrap" {
 # passed when added to `terraform-state`. One definition, one surface.
 #
 # The guards read this map and nothing else, so a grant that reaches the role
-# without going through it stays invisible to them: a standalone
-# `aws_iam_role_policy` resource declared alongside this one, or an
-# `aws_iam_role_policy_attachment` (managed policy — the role carries none).
-# HCL has no way to enumerate "every policy resource pointing at this role", so
-# that boundary is structural. What the map buys is that the one in-pattern way
-# to add a policy is guarded by construction; either bypass takes a new resource
-# block that has no business in this file, which review can see.
+# without going through it stays invisible to them: a policy resource pointing
+# at `aws_iam_role.ci_terraform` from outside the `for_each`, whether a
+# standalone `aws_iam_role_policy` or an `aws_iam_role_policy_attachment`
+# (managed policy; the role carries none). The signal to review for is the role
+# reference, not the resource type — this file legitimately carries standalone
+# policies for the other roles. The module README's *Least-privilege IAM*
+# section is the full discussion of this boundary.
 #
 # Two details are load-bearing. `flatten([s.Action])` because
 # `aws_iam_policy_document` renders a single-element `Action` as a bare string
@@ -834,6 +834,9 @@ resource "aws_iam_role_policy" "ci_terraform" {
   policy   = each.value
 }
 
+# Both environment roots consume this module by local path, so each picks these
+# moves up on its next apply; once both have applied them the blocks are inert
+# and can be deleted.
 moved {
   from = aws_iam_role_policy.ci_terraform_state
   to   = aws_iam_role_policy.ci_terraform["terraform-state"]

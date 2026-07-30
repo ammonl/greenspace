@@ -85,7 +85,8 @@ run "api_log_group_uses_default_encryption" {
 # other test in this module would notice.
 #
 # Both read `local.ci_terraform_granted_actions` — every action the role holds
-# across all three of its inline policies, defined once in `iam.tf`. A guard that
+# across all of its inline policies, defined once in `iam.tf` from the same map
+# the policies are attached from. A guard that
 # read a single policy document would prove nothing about the role, since IAM
 # unions them. They also rely on `ci_terraform_role_grants_no_service_wide_wildcard`
 # in `iam.tftest.hcl` to reject `*` and `service:*`, which would otherwise confer

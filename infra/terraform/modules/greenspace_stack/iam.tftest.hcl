@@ -73,9 +73,10 @@ run "ec2_grants_limited_to_the_security_group" {
   # group: `Describe*`/`Get*` are its plan-refresh reads, and the address and tag
   # actions are its curated destroy-side writes. They are listed because this
   # reads the role's whole granted surface (`local.ci_terraform_granted_actions`,
-  # defined in `iam.tf`) and not one policy document — IAM unions the three, so a
-  # guard that read only `ci_terraform_resources` would pass on `ec2:` grants
-  # added to `terraform-state`, which carries no shape guard of its own.
+  # defined in `iam.tf`) and not one policy document — IAM unions every policy
+  # on the role, so a guard that read only `ci_terraform_resources` would pass
+  # on `ec2:` grants added to `terraform-state`, which carries no shape guard of
+  # its own.
   assert {
     condition = length(setsubtract(
       toset([for a in local.ci_terraform_granted_actions : a if startswith(a, "ec2:")]),
@@ -149,6 +150,32 @@ run "ci_terraform_role_keeps_the_shared_network_ssm_read" {
       local.ci_terraform_granted_actions
     )) == 0
     error_message = "The CI Terraform role must keep ssm:GetParameter and ssm:GetParameters. Both environment roots read /shared/network/vpc-id and /shared/network/private-subnet-ids via data.aws_ssm_parameter on every plan, so dropping either action fails terraform plan in both environments — and the role cannot grant it back to itself. Remove this only alongside the last data source that reads SSM."
+  }
+}
+
+# The keys of `local.ci_terraform_policies` are AWS-facing identifiers, not
+# internal labels: `aws_iam_role_policy.ci_terraform` sets `name = each.key`, so
+# editing a key plans a DeleteRolePolicy + PutRolePolicy on the CI role.
+# `DenySelfModify` does not deny that pair — it is what lets these applies work
+# at all — so an apply that dies between the delete and the put of
+# `terraform-resources` leaves the role unable to restore itself, and recovery
+# is the out-of-band `put-role-policy` in `iam.tf`. Two consumers also depend on
+# the literal names: the `Validate bootstrap policy` job in
+# `drift-detection.yml` fetches `terraform-resources-bootstrap` by name and
+# would fail with NoSuchEntity, and the two-phase note in `iam.tf` warns
+# operators against reusing that name for temporary grants. Widen this list
+# deliberately when adding a policy; rename an existing key only with the same
+# care as deleting and recreating the policy it names.
+run "ci_terraform_policy_names_are_pinned" {
+  command = plan
+
+  assert {
+    condition = toset(keys(local.ci_terraform_policies)) == toset([
+      "terraform-state",
+      "terraform-resources",
+      "terraform-resources-bootstrap",
+    ])
+    error_message = "The CI Terraform role's inline policy names changed. These keys are live AWS policy names (name = each.key): a rename plans a delete-and-recreate of the policy on the role — mid-apply failure on terraform-resources is the lockout scenario in iam.tf's two-phase note — and drift-detection.yml fetches terraform-resources-bootstrap by name. Add new names here deliberately; rename existing ones only with an out-of-band recovery path ready."
   }
 }
 

@@ -176,13 +176,14 @@ that CMK subset became unreadable when `kms:Decrypt` went. The path scoping on
 the bootstrap policy's `SharedNetworkSsmRead` statement is what prevents the
 rest, and it does not depend on any KMS grant.
 
-`log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **all three**
-inline policies on the role — `terraform-state`, `terraform-resources`, and
-`terraform-resources-bootstrap` — because IAM unions them, so a guard that reads
-one document proves nothing about the role. They share a single definition of the
-role's granted surface (`local.ci_terraform_granted_actions` in `iam.tf`), which
-exists because the first version of these guards hand-copied the expression and
-ended up checking one document while its error message spoke for the role.
+`log_encryption.tftest.hcl` and `iam.tftest.hcl` guard this across **every
+inline policy on the role**, derived from the same `local.ci_terraform_policies`
+map the policies are attached from — because IAM unions them, so a guard that
+reads one document proves nothing about the role. They share a single definition
+of the role's granted surface (`local.ci_terraform_granted_actions` in
+`iam.tf`), which exists because the first version of these guards hand-copied
+the expression and ended up checking one document while its error message spoke
+for the role.
 
 The SNS alarm topic sets no `kms_master_key_id` and is therefore **unencrypted
 at rest**. This is deliberate, and `alias/aws/sns` is specifically not the fix.
@@ -260,8 +261,10 @@ resource pointing at this role", so a grant that reaches the role without going
 through the map stays invisible to the guards. That is a standalone
 `aws_iam_role_policy` resource declared outside the `for_each`, or an
 `aws_iam_role_policy_attachment` (managed policy — the role carries none
-today). Either bypass takes a new resource block that has no business in
-`iam.tf`, which review can see; treat adding one as a change to the guards too.
+today). The signal to review for is a policy resource whose `role` references
+`aws_iam_role.ci_terraform` from outside the map — not the resource type, since
+`iam.tf` legitimately carries standalone policies for the other roles. Treat
+adding one as a change to the guards too.
 
 ## SES email configuration
 
