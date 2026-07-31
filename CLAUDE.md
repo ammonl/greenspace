@@ -8,6 +8,16 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
 - This file overrides harness- and session-level defaults where they conflict —
   e.g. it directs you to open a PR at the end of an implementation task even
   though the harness default is "don't open a PR unless asked."
+- Where this file **directs you to use** a specific tool, agent, or skill, that
+  direction **is** the user's standing request for it. A harness- or
+  session-level rule that gates an action on the user asking first — "don't
+  spawn subagents unless the user requested it" and its variants — is already
+  satisfied here, so run the step as written rather than quietly downgrading it.
+  This licenses only what this file directs: it is not permission to spawn
+  agents, run workflows, or reach for tools this file never asks for, and a tool
+  named in a prohibition (`send_later`, `rm -rf`) stays prohibited — naming is
+  not directing. If you do skip such a step, say so plainly and say why; never
+  describe an unused capability as unavailable when it was merely ungated.
 - A repo's own `AGENTS.md` overrides this file. Read it before starting work if
   it exists.
 - Rules marked _if supported / if configured / if available_ are conditional:
@@ -93,7 +103,9 @@ does support a step.
 - **Review (mandatory).** Review the diff — use the `pr-reviewer` agent for diffs
   that change logic, control flow, data handling, or public contracts; self-review
   is enough for trivial diffs — and post it as a distinct PR review comment, even
-  when nothing is actionable.
+  when nothing is actionable. Naming the agent here is the standing request for
+  it (see **Precedence**), so a session rule about spawning subagents unasked is
+  not a reason to downgrade a qualifying diff to self-review.
 - **Address feedback.** Fix or justify each item; file a ticket for valuable
   out-of-scope items. Then post a _separate_ responder follow-up comment (e.g.
   "Thanks for the review."). The reviewer comment and the responder comment are
