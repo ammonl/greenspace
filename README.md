@@ -115,15 +115,26 @@ The API runs as an AWS Lambda function with a public Function URL.
 - **Lambda Function URL**: Terraform provisions the Lambda function and Function URL. The `api_base_url` output contains the public endpoint for each environment.
 - **No Lambda versions**: deploys update `$LATEST` only — the Function URL and the EventBridge schedule both invoke the unqualified function, and there is no alias or provisioned concurrency to serve a numbered version. Roll back by reverting the commit on `main` (or redeploying the previous artifact onto `$LATEST`); see [`docs/runbooks/launch-checklist.md`](docs/runbooks/launch-checklist.md).
 
-### GitHub environment variables (deploy)
+## GitHub variables (deploy)
 
-Each GitHub environment (`staging`, `production`) needs these variables:
+Both deploy workflows — `Deploy API` (`deploy.yml`) and `Deploy Web`
+(`deploy-web.yml`) — read these. The role ARNs are repo-level; the rest are set
+per GitHub environment (`staging`, `production`).
 
 | Variable                  | Purpose                                  |
 | ------------------------- | ---------------------------------------- |
-| `DEPLOY_ROLE_ARN_STAGING` | OIDC role ARN for staging API deployment (repo-level) |
-| `DEPLOY_ROLE_ARN_PROD`    | OIDC role ARN for production API deployment (repo-level) |
+| `DEPLOY_ROLE_ARN_STAGING` | OIDC role ARN for staging deployment, API and web (repo-level) |
+| `DEPLOY_ROLE_ARN_PROD`    | OIDC role ARN for production deployment, API and web (repo-level) |
 | `API_FUNCTION_NAME`       | Lambda function name (environment-level, e.g. `greenspace-staging-2026-api`) |
+| `AMPLIFY_APP_ID`          | Amplify app ID the `Deploy Web` workflow builds (environment-level) |
+
+`AMPLIFY_APP_ID` has to be set per environment, not repo-wide: staging and
+production each provision their own `aws_amplify_app`, so the two environments
+hold different app IDs. A single repo-level value would point both jobs at one
+app — deploying staging's build to production, or failing on an app ID the other
+environment's role cannot reach. `deploy-web.yml` resolves an unset variable to
+an empty string and fails inside `aws amplify start-job`, so a missing value
+surfaces as an AWS CLI error rather than a config check.
 
 ## CI / Terraform Pipeline
 
