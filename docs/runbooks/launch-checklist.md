@@ -119,9 +119,10 @@ investigation.
 Production infrastructure is deployed via the Terraform workflow on merge to `main`.
 
 1. Verify Terraform plan output for the `prod` environment (check CI artifacts)
-2. Confirm the `production` GitHub environment protection rule requires approval
-3. Approve the production Terraform apply
-4. Wait for apply to complete successfully
+2. Merge — that is the decision point. Prod applies on its own once staging has
+   applied and `verify-staging` passes; the `production` environment carries no
+   required reviewers, so there is no approval prompt to wait for
+3. Wait for apply to complete successfully
 
 **Completed:** [Terraform run #22752401895](https://github.com/ammonlarson/greenspace/actions/runs/22752401895) — all resources applied to prod including EventBridge session cleanup (2026-03-06)
 

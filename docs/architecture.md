@@ -428,9 +428,9 @@ before the apply are encrypted under the key, and a key scheduled for deletion
 enters `PendingDeletion` where it can no longer decrypt — so up to 90 days of
 prod API logs and 14 days of staging are lost the moment the apply lands, not at
 the end of the deletion window. This is an accepted cost. Staging and prod apply
-independently (`terraform.yml` applies staging on merge, prod behind the
-`production` environment's manual approval), so check which have actually run
-before assuming either environment's history is gone.
+independently (`terraform.yml` applies staging on merge, then prod once
+`verify-staging` passes — automatically, with no approval step), so check which
+have actually run before assuming either environment's history is gone.
 
 There is a 30-day escape hatch, but it is **three steps, not two**. The same
 apply destroys `aws_kms_key_policy.logs`, and destroying that resource resets
