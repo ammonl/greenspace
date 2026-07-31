@@ -338,10 +338,28 @@ URL from the same stack, so Next.js API rewrites point to the correct backend.
 
 ### Deployment Modes
 
-| Environment | Auto-build | Trigger                                    |
-| ----------- | ---------- | ------------------------------------------ |
-| staging     | enabled    | Push to `main` triggers automatic build    |
-| production  | disabled   | Manual deployment via Amplify console / CI |
+| Environment | `main` auto-build | Trigger                                                  |
+| ----------- | ----------------- | -------------------------------------------------------- |
+| staging     | disabled          | `deploy-web.yml` starts the build on push to `main`        |
+| production  | disabled          | `deploy-web.yml` starts the build after staging succeeds   |
+
+Both environments set `amplify_enable_auto_build = false`, so Amplify's own
+hook on the `main` branch never fires — every build of a deployed environment
+is started explicitly by the `Deploy Web` workflow with
+`aws amplify start-job`, which then polls `aws amplify get-job` until the job
+reports `SUCCEED` and fails the step on `FAILED`/`CANCELLING`/`CANCELLED`.
+
+This applies to the `main` branch only. Staging additionally sets
+`amplify_enable_preview_branches = true`, and the auto-created preview branches
+*do* build themselves — `auto_branch_creation_config` sets `enable_auto_build`
+for them independently. Prod sets it to `false` and has no preview branches.
+
+Neither environment is deployed by hand, and production is not held for a
+human: `deploy-web-prod` declares `needs: deploy-web-staging`, so it runs
+unattended once the staging build has been polled to success. As everywhere
+else in this repo, `environment: production` scopes that environment's
+variables and records deployment history — it carries no required reviewers and
+gates nothing.
 
 #### Required PR status checks
 
