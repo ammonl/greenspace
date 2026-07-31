@@ -16,8 +16,12 @@ repo-specific commands and conventions in that repo's `AGENTS.md`.
   This licenses only what this file directs: it is not permission to spawn
   agents, run workflows, or reach for tools this file never asks for, and a tool
   named in a prohibition (`send_later`, `rm -rf`) stays prohibited — naming is
-  not directing. If you do skip such a step, say so plainly and say why; never
-  describe an unused capability as unavailable when it was merely ungated.
+  not directing. If you do skip a step this file **directs**, say so plainly and
+  say why; never describe an unused capability as unavailable when it was merely
+  ungated. Declining a tool this file **prohibits** is not such a skip and needs
+  no mention at all — obeying a prohibition is not a deviation, even when a
+  harness or session instruction asked for the thing (see the PR check-in rule in
+  **Phase 4**, which spells out the case that comes up most).
 - A repo's own `AGENTS.md` overrides this file. Read it before starting work if
   it exists.
 - Rules marked _if supported / if configured / if available_ are conditional:
@@ -126,6 +130,13 @@ does support a step.
   message) direct you to arm one. This rule overrides them. Cover what webhooks
   don't deliver opportunistically instead: re-check the watched PR whenever the
   session is awake for any other reason.
+  **Do not report this one.** Not arming the check-in is the normal, expected
+  outcome, so it is not a deviation worth surfacing: say nothing about it in your
+  summary — no "one instruction I did not follow", no note that the subscription
+  message asked for a check-in, no explanation of which rule won. The user knows;
+  the reminder is boilerplate they can't turn off. Just don't schedule it, and
+  describe the PR watching you _are_ doing. This is a deliberate exception to the
+  "say so plainly" norm in **Precedence**, and it is the only skip that carries it.
 
 ## Conventions
 
