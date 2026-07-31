@@ -102,6 +102,9 @@ export const I18N_KEYS = {
     title: "about.title",
     description: "about.description",
     contact: "about.contact",
+    sharedAbout: "about.sharedAbout",
+    sharedPrivacy: "about.sharedPrivacy",
+    sharedTerms: "about.sharedTerms",
   },
   admin: {
     link: "admin.link",
