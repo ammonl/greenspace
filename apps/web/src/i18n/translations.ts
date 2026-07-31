@@ -34,7 +34,8 @@ const da = {
   "address.searchPlaceholder": "Søg din adresse...",
   "address.searchHint":
     "Skriv dit husnummer for at finde din adresse (Else Alfelts Vej 122–202)",
-  "address.noResults": "Ingen adresser fundet. Kontrollér at husnummeret er korrekt.",
+  "address.noResults":
+    "Ingen adresser fundet. Kontrollér at husnummeret er korrekt.",
   "address.selectedAddress": "Valgt adresse",
   "address.changeAddress": "Skift adresse",
   "address.ineligible": "Denne adresse er ikke berettiget til tilmelding.",
@@ -167,9 +168,12 @@ const da = {
   "admin.settingsSaved": "Indstilling gemt",
 
   "admin.notifications.title": "E-mailnotifikationer",
-  "admin.notifications.description": "Vælg hvilke begivenheder du vil modtage e-mailnotifikationer om.",
-  "admin.notifications.userRegistration": "Bruger registrerer sig eller skifter plantekasse",
-  "admin.notifications.adminBoxAction": "Anden administrator udfører kassehandlinger",
+  "admin.notifications.description":
+    "Vælg hvilke begivenheder du vil modtage e-mailnotifikationer om.",
+  "admin.notifications.userRegistration":
+    "Bruger registrerer sig eller skifter plantekasse",
+  "admin.notifications.adminBoxAction":
+    "Anden administrator udfører kassehandlinger",
 
   "admin.tab.registrations": "Tilmeldinger",
   "admin.tab.waitlist": "Venteliste",
@@ -239,14 +243,17 @@ const da = {
   "admin.messaging.source": "Kilde",
   "admin.messaging.send": "Send e-mail",
   "admin.messaging.sending": "Sender...",
-  "admin.messaging.confirmSend": "Er du sikker på, at du vil sende denne e-mail til",
+  "admin.messaging.confirmSend":
+    "Er du sikker på, at du vil sende denne e-mail til",
   "admin.messaging.sent": "E-mail sendt",
   "admin.messaging.failed": "Afsendelse mislykkedes",
-  "admin.messaging.noRecipients": "Ingen modtagere fundet for det valgte publikum",
+  "admin.messaging.noRecipients":
+    "Ingen modtagere fundet for det valgte publikum",
   "admin.messaging.subjectRequired": "Emne er påkrævet",
   "admin.messaging.bodyRequired": "Brødtekst er påkrævet",
   "admin.messaging.bilingual": "Tosproget",
-  "admin.messaging.bilingualHint": "Send separate versioner på dansk og engelsk baseret på modtagerens sprogpræference",
+  "admin.messaging.bilingualHint":
+    "Send separate versioner på dansk og engelsk baseret på modtagerens sprogpræference",
   "admin.messaging.danishVersion": "Dansk version",
   "admin.messaging.englishVersion": "Engelsk version",
   "admin.messaging.subjectDaRequired": "Dansk emne er påkrævet",
@@ -254,7 +261,8 @@ const da = {
   "admin.messaging.bodyDaRequired": "Dansk brødtekst er påkrævet",
   "admin.messaging.bodyEnRequired": "Engelsk brødtekst er påkrævet",
   "admin.messaging.resetTemplate": "Nulstil til skabelon",
-  "admin.messaging.templateHint": "Sidehoved og sidefod tilføjes automatisk, når e-mailen sendes.",
+  "admin.messaging.templateHint":
+    "Sidehoved og sidefod tilføjes automatisk, når e-mailen sendes.",
 
   "admin.waitlist.title": "Venteliste",
   "admin.waitlist.name": "Navn",
@@ -327,7 +335,8 @@ const da = {
   "admin.account.actions": "Handlinger",
   "admin.account.delete": "Slet",
   "admin.account.noAdmins": "Ingen administratorer fundet",
-  "admin.account.confirmDelete": "Er du sikker på, at du vil slette denne administrator?",
+  "admin.account.confirmDelete":
+    "Er du sikker på, at du vil slette denne administrator?",
   "admin.account.deleted": "Administrator slettet",
   "admin.account.selfDeleteError": "Du kan ikke slette din egen konto",
   "admin.account.createTitle": "Opret administrator",
@@ -355,11 +364,15 @@ const da = {
   "guidelines.forfeit":
     " Hvis planterne ikke er startet, mistes pladsen, og den går videre til næste person på ventelisten.",
   "guidelines.rulesTitle": "Regler og ansvar",
-  "guidelines.ruleWatering": "Hold plantebordet ved at vande og luge regelmæssigt.",
-  "guidelines.ruleOrganic": "Brug kun økologiske og miljøvenlige havebrugsmetoder.",
-  "guidelines.ruleNoHarvest": "Høst ikke fra andre planteborde uden tilladelse.",
+  "guidelines.ruleWatering":
+    "Hold plantebordet ved at vande og luge regelmæssigt.",
+  "guidelines.ruleOrganic":
+    "Brug kun økologiske og miljøvenlige havebrugsmetoder.",
+  "guidelines.ruleNoHarvest":
+    "Høst ikke fra andre planteborde uden tilladelse.",
   "guidelines.supportTitle": "Hjælp og ressourcer",
-  "guidelines.supportTools": "Basale haveværktøjer og kompost er til rådighed til fælles brug.",
+  "guidelines.supportTools":
+    "Basale haveværktøjer og kompost er til rådighed til fælles brug.",
   "guidelines.supportContact":
     "Har du brug for hjælp eller har spørgsmål, kan du kontakte fællesskabskoordinatorerne.",
   "guidelines.contactTitle": "Kontaktpersoner",
@@ -368,6 +381,9 @@ const da = {
   "about.description":
     "UN17 Village Taghaver er et fællesskabsprojekt for beboere på UN17 Village. Vi driver plantekasser i to tagdrivhuse for at skabe grønne rum og styrke nabofællesskabet.",
   "about.contact": "Spørgsmål? Kontakt os:",
+  "about.sharedAbout": "Om",
+  "about.sharedPrivacy": "Privatlivspolitik",
+  "about.sharedTerms": "Servicevilkår",
 };
 
 export type TranslationKey = keyof typeof da;
@@ -406,7 +422,8 @@ const en: Record<TranslationKey, string> = {
   "address.searchPlaceholder": "Search your address...",
   "address.searchHint":
     "Type your house number to find your address (Else Alfelts Vej 122–202)",
-  "address.noResults": "No addresses found. Check that the house number is correct.",
+  "address.noResults":
+    "No addresses found. Check that the house number is correct.",
   "address.selectedAddress": "Selected address",
   "address.changeAddress": "Change address",
   "address.ineligible": "This address is not eligible for registration.",
@@ -508,8 +525,7 @@ const en: Record<TranslationKey, string> = {
     "If you have questions about your data, please contact the organizers.",
   "consent.acknowledgment":
     "I have read and accept the above terms for data collection and use.",
-  "consent.required":
-    "You must accept the data protection terms to continue.",
+  "consent.required": "You must accept the data protection terms to continue.",
 
   "policy.oneApartmentRule":
     "Each apartment may only have one active planter box. If your apartment already has a registration, a new registration will replace the existing one.",
@@ -539,8 +555,10 @@ const en: Record<TranslationKey, string> = {
   "admin.settingsSaved": "Setting saved",
 
   "admin.notifications.title": "Email notifications",
-  "admin.notifications.description": "Choose which events you want to receive email notifications about.",
-  "admin.notifications.userRegistration": "User registers or switches planter box",
+  "admin.notifications.description":
+    "Choose which events you want to receive email notifications about.",
+  "admin.notifications.userRegistration":
+    "User registers or switches planter box",
   "admin.notifications.adminBoxAction": "Another admin takes box actions",
 
   "admin.tab.registrations": "Registrations",
@@ -594,7 +612,8 @@ const en: Record<TranslationKey, string> = {
   "admin.notification.source": "Source",
   "admin.notification.previewLoading": "Loading preview...",
   "admin.notification.previewError": "Could not load preview",
-  "admin.notification.sourceError": "Invalid HTML — fix the error before sending",
+  "admin.notification.sourceError":
+    "Invalid HTML — fix the error before sending",
   "admin.notification.reset": "Reset to default",
 
   "admin.messaging.title": "Send Email",
@@ -614,11 +633,13 @@ const en: Record<TranslationKey, string> = {
   "admin.messaging.confirmSend": "Are you sure you want to send this email to",
   "admin.messaging.sent": "Email sent",
   "admin.messaging.failed": "Sending failed",
-  "admin.messaging.noRecipients": "No recipients found for the selected audience",
+  "admin.messaging.noRecipients":
+    "No recipients found for the selected audience",
   "admin.messaging.subjectRequired": "Subject is required",
   "admin.messaging.bodyRequired": "Body is required",
   "admin.messaging.bilingual": "Bilingual",
-  "admin.messaging.bilingualHint": "Send separate Danish and English versions based on each recipient's language preference",
+  "admin.messaging.bilingualHint":
+    "Send separate Danish and English versions based on each recipient's language preference",
   "admin.messaging.danishVersion": "Danish version",
   "admin.messaging.englishVersion": "English version",
   "admin.messaging.subjectDaRequired": "Danish subject is required",
@@ -626,7 +647,8 @@ const en: Record<TranslationKey, string> = {
   "admin.messaging.bodyDaRequired": "Danish body is required",
   "admin.messaging.bodyEnRequired": "English body is required",
   "admin.messaging.resetTemplate": "Reset to template",
-  "admin.messaging.templateHint": "Header and footer are automatically added when the email is sent.",
+  "admin.messaging.templateHint":
+    "Header and footer are automatically added when the email is sent.",
 
   "admin.waitlist.title": "Waitlist",
   "admin.waitlist.name": "Name",
@@ -699,7 +721,8 @@ const en: Record<TranslationKey, string> = {
   "admin.account.actions": "Actions",
   "admin.account.delete": "Delete",
   "admin.account.noAdmins": "No administrators found",
-  "admin.account.confirmDelete": "Are you sure you want to delete this administrator?",
+  "admin.account.confirmDelete":
+    "Are you sure you want to delete this administrator?",
   "admin.account.deleted": "Administrator deleted",
   "admin.account.selfDeleteError": "You cannot delete your own account",
   "admin.account.createTitle": "Create Administrator",
@@ -727,11 +750,15 @@ const en: Record<TranslationKey, string> = {
   "guidelines.forfeit":
     "If plants are not started, the spot will be forfeited to the next person in line.",
   "guidelines.rulesTitle": "Rules & responsibilities",
-  "guidelines.ruleWatering": "Maintain the garden bed by watering and weeding regularly.",
-  "guidelines.ruleOrganic": "Use only organic and eco-friendly gardening methods.",
-  "guidelines.ruleNoHarvest": "Do not harvest from other beds without permission.",
+  "guidelines.ruleWatering":
+    "Maintain the garden bed by watering and weeding regularly.",
+  "guidelines.ruleOrganic":
+    "Use only organic and eco-friendly gardening methods.",
+  "guidelines.ruleNoHarvest":
+    "Do not harvest from other beds without permission.",
   "guidelines.supportTitle": "Support & resources",
-  "guidelines.supportTools": "Basic gardening tools and compost are available for shared use.",
+  "guidelines.supportTools":
+    "Basic gardening tools and compost are available for shared use.",
   "guidelines.supportContact":
     "If you need assistance or have questions, reach out to the community coordinators.",
   "guidelines.contactTitle": "Contact",
@@ -740,6 +767,9 @@ const en: Record<TranslationKey, string> = {
   "about.description":
     "UN17 Village Rooftop Gardens is a community project for residents of UN17 Village. We run planter boxes in two rooftop greenhouses to create green spaces and strengthen the neighborhood community.",
   "about.contact": "Questions? Get in touch:",
+  "about.sharedAbout": "About",
+  "about.sharedPrivacy": "Privacy Policy",
+  "about.sharedTerms": "Terms of Service",
 };
 
 export const translations: Record<Language, Record<TranslationKey, string>> = {
