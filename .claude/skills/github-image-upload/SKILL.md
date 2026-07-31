@@ -64,6 +64,58 @@ Paste that into the PR description (or issue/comment). Include clearly labeled
 brand-new surface, noted as such); capture the same viewport and state in both
 images so the diff is obvious.
 
+Then **verify it rendered** — see below. Posting is not evidence of rendering.
+
+### Verify the embed survived — always, before moving on
+
+After posting, read the body back — with whatever GitHub tooling the session
+has — and confirm the embed is still an embed. Do not assume a particular CLI:
+a remote session has no `gh`, and that is exactly where this check matters, so
+use the GitHub MCP tools (`pull_request_read`, `issue_read`) or a plain API call
+there.
+
+```bash
+# where gh is available; adapt the read to your tooling
+gh api repos/<owner>/<repo>/pulls/<n> --jq .body | grep -c '!\[.*\](http'
+```
+
+What you are looking for is an embed that still starts with `![` and still
+points at `http`. Zero matches, or a body where it now reads
+` ``[alt](url)`` `, means it was rewritten and no image will render.
+
+This check is not paranoia. Some environments — Claude Code remote sessions in
+particular — sanitize agent-authored GitHub bodies **by host**: a link or image
+pointing anywhere outside an allowlist (github.com and claude.ai survive; an S3
+bucket does not) is rewritten into a double-backtick code span with the leading
+`!` stripped. It happens after the body leaves the session, so the markdown you
+sent was correct and the result is still inert text.
+
+**When verification fails, stop.** Do not re-post the same content in a
+different markdown shape — a plain `[link](url)` is neutralized exactly like an
+`![embed](url)`, so a retry only adds a second comment full of dead URLs. Go
+straight to the fallback below, and leave no wall of signed URLs behind: they
+read as a broken embed and put the bucket name and signature in the record for
+nothing.
+
+### Fallback: hand the files to the user
+
+Where the sanitizer is active, no upload destination can render inline, because
+the rewrite keys on the host rather than on anything about the image. The
+working path is to deliver the image files to the user and let them drag the
+files into the GitHub composer — GitHub then hosts them itself, and they render.
+
+Do all three:
+
+1. Send the files (e.g. `SendUserFile`), naming what each one shows.
+2. Say in the PR, in one plain sentence, that screenshots were delivered out of
+   band because embeds do not render from this environment — so a reviewer knows
+   they are missing rather than assuming there were none.
+3. Tell the user the drag-and-drop step is theirs, rather than implying the PR
+   is already illustrated.
+
+Very tall full-page captures can exceed the delivery size limit. Re-shoot at
+`deviceScaleFactor: 1` rather than dropping the screenshot.
+
 ### Paste the embed verbatim — do not re-wrap it
 
 The wrapper already emits a complete Markdown image embed (`![alt](url)`). Paste
@@ -246,6 +298,13 @@ env:
   backticks or a fenced code block, and keep the leading `!`. Either mistake
   renders it as literal text instead of an image (see
   [Paste the embed verbatim](#paste-the-embed-verbatim--do-not-re-wrap-it)).
+- **Always read the body back and confirm the embed survived** (see
+  [Verify the embed survived](#verify-the-embed-survived--always-before-moving-on)).
+  Posting is not evidence of rendering, and an environment that sanitizes
+  external hosts will neutralize a perfectly formed embed after it leaves you.
+- **On a failed verification, switch to the fallback — do not retry in another
+  markdown shape.** A plain link is neutralized just like an embed, so a second
+  attempt only leaves a second block of dead URLs in the thread.
 - Do not commit screenshots or other one-off image assets to any branch. Keep
   them in ignored agent scratch storage and delete them once the embed renders.
 - Include clearly labeled **before/after** screenshots for user-facing changes
