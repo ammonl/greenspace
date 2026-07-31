@@ -160,9 +160,14 @@ covers the backend only — the frontend ships on its own path, section 2.4.
 
 The Next.js frontend is deployed via the `Deploy Web` workflow
 (`deploy-web.yml`) on merge to `main`, triggered by changes under `apps/web/**`
-or `packages/shared/**` (`workflow_dispatch` also works). A change to
-`packages/shared/**` triggers both this workflow and the API deploy in 2.3; they
-run independently, in no guaranteed order.
+or `packages/shared/**`. A change to `packages/shared/**` triggers both this
+workflow and the API deploy in 2.3; they run independently, in no guaranteed
+order.
+
+`workflow_dispatch` also works, but unlike 2.3 it ignores the ref you dispatch
+from: the workflow never checks out the repository and passes `--branch-name
+main` to Amplify, so a dispatch from a feature branch builds `main`. Use it to
+re-run a deploy, not to preview a branch.
 
 Each job starts an Amplify `RELEASE` build with `aws amplify start-job` against
 the environment's `AMPLIFY_APP_ID`, then polls `aws amplify get-job` every 30
@@ -176,7 +181,7 @@ is the whole verdict.
    `SUCCEED`: it declares `needs: deploy-web-staging`, so a staging build that
    ends in anything else stops the promotion. Prod runs unattended — as with the
    API and Terraform paths, there is nothing to approve
-4. Confirm `Deploy Web (prod)` also reaches `SUCCEED`
+4. Confirm the prod build also reports `SUCCEED`
 
 **Reading the outcome:**
 
@@ -190,6 +195,11 @@ A failed `Deploy Web (staging)` leaves production on its previous build, since
 `deploy-web-prod` never starts. Roll back by reverting the commit on `main` and
 letting the workflow run again, or by redeploying a previous Amplify job from the
 console.
+
+**Completed:** not recorded. This section was written after the 2026-03-06
+cutover, and no `Deploy Web` run was captured at the time the way 2.1–2.3
+captured theirs. Link the run the next time this workflow deploys to production.
+The missing link is a gap in the record, not outstanding work.
 
 ### 2.5 Database Setup
 

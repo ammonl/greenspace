@@ -24,9 +24,11 @@ Set these in your repository settings:
 ### GitHub Environments
 
 Create these environments in Settings → Environments. Both exist to scope
-environment-level variables (such as `API_FUNCTION_NAME`) and to record
-deployment history — the workflows' `environment:` keys are load-bearing for
-that, so do not remove them.
+environment-level variables (`API_FUNCTION_NAME` and `AMPLIFY_APP_ID` — each
+environment provisions its own Lambda and its own Amplify app, so the two hold
+different values) and to record deployment history — the workflows'
+`environment:` keys are load-bearing for that, so do not remove them. See the
+deploy variable table in the root `README.md` for the full list.
 
 - `staging` - No protection rules needed
 - `production` - No protection rules either. Prod promotion is deliberately
