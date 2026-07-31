@@ -132,7 +132,7 @@ Five workflows handle CI, infrastructure, deployment, and drift detection:
 - **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled, and verifies the committed provider lock files (`Lock check`, which no-ops when `infra/terraform` is untouched).
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
 - **Deploy (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
-- **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends `FAILED` or `CANCELLED` stops the promotion; as with the other two paths, nothing waits for a human.
+- **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends in anything other than `SUCCEED` stops the promotion; as with the other two paths, nothing waits for a human.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 
 ### Pull requests (internal)

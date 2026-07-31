@@ -145,8 +145,7 @@ Production infrastructure is deployed via the Terraform workflow on merge to `ma
 
 Application code is deployed via the Deploy API workflow on merge to `main`.
 
-1. Merge the latest code to `main` (or trigger `workflow_dispatch`) — that is the
-   decision point
+1. Merge the latest code to `main` (or trigger `workflow_dispatch`)
 2. Monitor the `Deploy (staging)` job — confirm health check passes
 3. `Deploy (prod)` starts on its own once staging is green: it declares
    `needs: deploy-staging`, and the staging job ends in the health check, so a
