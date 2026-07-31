@@ -111,7 +111,7 @@ The Next.js dev server starts on `http://localhost:3000` and proxies API routes 
 The API runs as an AWS Lambda function with a public Function URL.
 
 - **Build**: `npm run bundle --workspace=@greenspace/api` produces a single-file ESM bundle via esbuild.
-- **Deploy workflow** (`deploy.yml`): Triggers on push to `main` when `apps/api/**` or `packages/shared/**` change. Builds the bundle, deploys to staging Lambda, runs a health check, then promotes to production (gated by the `production` environment protection rule).
+- **Deploy workflow** (`deploy.yml`): Triggers on push to `main` when `apps/api/**` or `packages/shared/**` change. Builds the bundle, deploys to staging Lambda, runs a health check, then promotes to production. Promotion is automatic — `deploy-prod` declares `needs: deploy-staging`, so a failed staging health check stops it, but nothing waits for a human. The `production` environment scopes that environment's variables and records deployment history; it is not an approval gate, and no required reviewers are configured.
 - **Lambda Function URL**: Terraform provisions the Lambda function and Function URL. The `api_base_url` output contains the public endpoint for each environment.
 - **No Lambda versions**: deploys update `$LATEST` only — the Function URL and the EventBridge schedule both invoke the unqualified function, and there is no alias or provisioned concurrency to serve a numbered version. Roll back by reverting the commit on `main` (or redeploying the previous artifact onto `$LATEST`); see [`docs/runbooks/launch-checklist.md`](docs/runbooks/launch-checklist.md).
 
@@ -144,7 +144,9 @@ Fork PRs receive no AWS credentials. The workflow falls back to backend-disabled
 
 ### Merge to main
 
-Staging is applied first. Production applies after staging succeeds, gated by the `production` environment protection rule.
+Staging is applied first. Production applies after staging succeeds — specifically after `verify-staging`, which checks `GET /public/status` and so exercises the database path rather than mere reachability. `apply-prod` lists that job in its `needs:`, so a failed verification stops the promotion.
+
+There is no approval step. The `production` environment scopes variables and records deployment history, but carries no required reviewers; the human checkpoint is the pull request, since branch protection means a change reaches prod only through an approved PR.
 
 Concurrency guards prevent simultaneous applies to the same environment.
 
@@ -175,7 +177,7 @@ All three live in `ci.yml`, which has no path filter, so each reports on every P
 
 - Fork PRs never receive privileged credentials.
 - `concurrency` groups prevent parallel applies per environment.
-- Prod apply is gated behind staging success and the `production` environment protection rule.
+- Prod apply is gated behind staging success — the staging apply *and* the `verify-staging` check that follows it, both listed in `apply-prod`'s `needs:`. Not behind an approval: the `production` environment carries no required reviewers.
 - Plan output is saved as an artifact for audit.
 
 ## Monitoring & Alerting

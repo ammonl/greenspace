@@ -118,9 +118,9 @@ the key, and a key scheduled for deletion enters `PendingDeletion` where it can
 no longer decrypt, so the loss lands on apply rather than at the end of the
 deletion window. Up to 90 days of prod and 14 days of staging API logs go with
 it. This was accepted deliberately. Staging and prod apply separately —
-`terraform.yml` applies staging on merge and gates prod behind the `production`
-environment's manual approval — so one may have lost its history while the other
-still has it.
+`terraform.yml` applies staging on merge, then prod once `verify-staging`
+passes, with no approval step in between — so if a run stops partway, one may
+have lost its history while the other still has it.
 
 Recovery is possible for 30 days after the apply, but **it takes three steps,
 not two.** The same apply destroys `aws_kms_key_policy.logs`, and destroying

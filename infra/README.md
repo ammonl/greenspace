@@ -23,9 +23,18 @@ Set these in your repository settings:
 
 ### GitHub Environments
 
-Create these environments in Settings → Environments:
+Create these environments in Settings → Environments. Both exist to scope
+environment-level variables (such as `API_FUNCTION_NAME`) and to record
+deployment history — the workflows' `environment:` keys are load-bearing for
+that, so do not remove them.
+
 - `staging` - No protection rules needed
-- `production` - Add required reviewers (ammoml)
+- `production` - No protection rules either. Prod promotion is deliberately
+  unattended: each prod job already waits on a verified staging, and the human
+  checkpoint is the approving review branch protection requires on `main`. If an
+  approval step in front of prod is ever wanted, required reviewers here is where
+  it goes — and the deploy-flow descriptions in `README.md` and `AGENTS.md` need
+  updating with it, since they currently state the opposite.
 
 ### Workflow Behavior
 

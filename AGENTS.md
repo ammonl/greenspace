@@ -108,9 +108,10 @@ Inline styles only — no Tailwind, no CSS modules. Shared visual constants (e.g
 
 ### Infra & deploy
 
-- `deploy.yml` triggers on `apps/api/**` or `packages/shared/**` changes to main: bundles via esbuild, deploys to staging Lambda, smoke-tests `/health`, then promotes to prod (gated by GitHub `production` environment protection).
+- `deploy.yml` triggers on `apps/api/**` or `packages/shared/**` changes to main: bundles via esbuild, deploys to staging Lambda, smoke-tests `/health`, then promotes to prod.
 - `terraform.yml` triggers on `infra/terraform/**`; staging applies first and is health-checked via `GET /public/status`, prod after.
-- `deploy-web.yml` handles the Amplify-hosted Next.js app.
+- `deploy-web.yml` handles the Amplify-hosted Next.js app: the staging job polls the Amplify build to `SUCCEED`, and the prod job declares `needs: deploy-web-staging`.
+- **Prod promotion is automatic, not approved.** All three paths above gate prod on a *verified* staging — `needs: deploy-staging`, `needs: verify-staging`, `needs: deploy-web-staging` respectively — but nothing waits for a human. The `production` environment scopes that environment's variables and records deployment history; it carries no required reviewers, so do not read `environment: production` as an approval step (and do not remove the key either — the variables need it). The human checkpoint is the approving review branch protection requires on `main`.
 - `drift-detection.yml` runs daily and opens a GitHub issue if `terraform plan` shows drift.
 - All AWS auth uses GitHub OIDC role assumption — no long-lived keys.
 
