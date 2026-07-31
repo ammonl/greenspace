@@ -145,9 +145,12 @@ Production infrastructure is deployed via the Terraform workflow on merge to `ma
 
 Application code is deployed via the Deploy API workflow on merge to `main`.
 
-1. Merge the latest code to `main` (or trigger `workflow_dispatch`)
+1. Merge the latest code to `main` (or trigger `workflow_dispatch`) — that is the
+   decision point
 2. Monitor the `Deploy (staging)` job — confirm health check passes
-3. Approve the `Deploy (prod)` job when staging is green
+3. `Deploy (prod)` starts on its own once staging is green: it declares
+   `needs: deploy-staging`, and the staging job ends in the health check, so a
+   failed check stops the promotion. There is nothing to approve
 4. Monitor the production health check
 
 **Completed:** [Deploy run #22753594618](https://github.com/ammonlarson/greenspace/actions/runs/22753594618) — staging deployed (health check passed), prod deployed (health check passed) (2026-03-06)
