@@ -110,6 +110,30 @@ resource "aws_iam_role" "ci_deploy" {
   }
 }
 
+# The deploy role's Amplify surface, defined here rather than inline so
+# `iam.tftest.hcl` can assert on it at plan time (the policy document's
+# rendered json is unknown until the Amplify app ARN exists). DeleteBranch is
+# granted only where preview branches exist at all: the preview-teardown
+# reconcile needs to reclaim leaked `pr-<n>` branches, and an environment
+# without previews (prod) gets no delete grant on the Amplify app serving its
+# live domain.
+locals {
+  ci_deploy_amplify_actions = concat(
+    [
+      "amplify:StartDeployment",
+      "amplify:GetApp",
+      "amplify:GetBranch",
+      "amplify:ListApps",
+      "amplify:ListBranches",
+      "amplify:StartJob",
+      "amplify:StopJob",
+      "amplify:GetJob",
+      "amplify:ListJobs",
+    ],
+    var.amplify_enable_preview_branches ? ["amplify:DeleteBranch"] : [],
+  )
+}
+
 data "aws_iam_policy_document" "ci_deploy_permissions" {
   statement {
     sid    = "LambdaDeploy"
@@ -143,19 +167,9 @@ data "aws_iam_policy_document" "ci_deploy_permissions" {
   }
 
   statement {
-    sid    = "AmplifyDeploy"
-    effect = "Allow"
-    actions = [
-      "amplify:StartDeployment",
-      "amplify:GetApp",
-      "amplify:GetBranch",
-      "amplify:ListApps",
-      "amplify:ListBranches",
-      "amplify:StartJob",
-      "amplify:StopJob",
-      "amplify:GetJob",
-      "amplify:ListJobs",
-    ]
+    sid     = "AmplifyDeploy"
+    effect  = "Allow"
+    actions = local.ci_deploy_amplify_actions
     resources = [
       aws_amplify_app.web.arn,
       "${aws_amplify_app.web.arn}/*",

@@ -112,6 +112,7 @@ Inline styles only — no Tailwind, no CSS modules. Shared visual constants (e.g
 - `terraform.yml` triggers on `infra/terraform/**`; staging applies first and is health-checked via `GET /public/status`, prod after.
 - `deploy-web.yml` handles the Amplify-hosted Next.js app: the staging job polls the Amplify build to `SUCCEED`, and the prod job declares `needs: deploy-web-staging`.
 - **Prod promotion is automatic, not approved.** All three paths above gate prod on a *verified* staging — `needs: deploy-staging`, `needs: verify-staging`, `needs: deploy-web-staging` respectively — but nothing waits for a human. The `production` environment scopes that environment's variables and records deployment history; it carries no required reviewers, so do not read `environment: production` as an approval step (and do not remove the key either — the variables need it). The human checkpoint is the approving review branch protection requires on `main`.
+- PR previews are Amplify-native: the staging app's GitHub App connection builds an ephemeral `pr-<n>` branch for every PR (previews hit the staging API/DB only, never prod) and tears it down on close. `preview-comment.yml` posts the preview URL as a sticky comment on same-repo PRs touching `apps/web/**` or `packages/shared/**` (no AWS credentials); `preview-teardown.yml` reconciles leaked preview branches daily.
 - `drift-detection.yml` runs daily and opens a GitHub issue if `terraform plan` shows drift.
 - All AWS auth uses GitHub OIDC role assumption — no long-lived keys.
 

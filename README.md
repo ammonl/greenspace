@@ -140,14 +140,73 @@ red. `deploy-web.yml` resolves an unset variable to an empty string and fails
 inside `aws amplify start-job`, so a missing value surfaces as an AWS CLI error
 rather than a config check.
 
+## PR preview deploys
+
+The preview deploy itself is **Amplify's native pull-request preview**: the
+staging Amplify app is connected to this repository through the Amplify GitHub
+App with `enable_pull_request_preview` set (staging sets
+`amplify_enable_preview_branches = true`; see
+`modules/greenspace_stack/amplify.tf`), so every PR gets an ephemeral
+`pr-<number>` branch that Amplify builds, serves at
+`https://pr-<number>.<app>.amplifyapp.com`, reports as an
+"AWS Amplify Console Web Preview" check run, and tears down when the PR
+closes. That check is easy to overlook — the ticket that produced this section
+was filed about a PR that had one — so two thin workflows make the previews
+reviewable and reclaimed:
+
+- **Preview Comment (`preview-comment.yml`)** waits for the Amplify check on
+  same-repo PRs touching `apps/web/**` or `packages/shared/**` and posts its
+  URL as a sticky PR comment (updating it in place on each push, and marking
+  it stale if a build fails). It runs with no AWS credentials at all — a
+  `pull_request` workflow executes the PR head's copy of the file, so nothing
+  reachable from that trigger may hold a deploy role.
+- **Preview Teardown (`preview-teardown.yml`)** updates the sticky comment on
+  close (Amplify itself deletes the `pr-<n>` branch) and runs a daily
+  reconcile — also manually dispatchable — that deletes leaked preview
+  branches: `pr-<n>` branches whose PR is confirmed closed, and auto-created
+  branch previews whose PRs have all closed. Branch deployments that never had
+  a PR are logged and kept, not reclaimed. The reconcile is the only job with
+  AWS credentials, and it never runs from a `pull_request` trigger; the
+  `amplify:DeleteBranch` grant it needs exists only in environments with
+  previews enabled (staging), never on the prod app.
+
+**Isolation.** Previews cannot reach production data or email real residents,
+structurally rather than by convention:
+
+- The staging Amplify app pins `API_URL` at the app level to the **staging**
+  Lambda Function URL, so every preview branch talks to the staging API and the
+  staging database (`rds/shared/greenspace_staging`). Production is a separate
+  Amplify app, Lambda, and database with its own scoped deploy role — there is
+  no configuration a preview branch could inherit that points at it.
+- Resident registrations (names, emails, home addresses) exist only in the
+  production database. Any email a preview triggers goes through the staging
+  API's SES sender (`staging.un17hub.com`) to whatever address a reviewer typed
+  into the preview — it has no resident addresses to send to.
+- Fork PRs get no preview comment: their token cannot comment, and the
+  workflow skips them explicitly.
+
+**Limits.** The preview builds the PR's *web* code against the staging API,
+which runs `main`'s API code — a `packages/shared` change that alters API
+behavior is not reflected in the preview backend until it lands on `main`.
+Previews also share the staging database with anything else exercising
+staging, so two reviewers registering the same box can collide. And Amplify
+builds a preview for *every* PR, path-filtered or not — the workflows filter
+which PRs get a comment, not which get a build. Separately from PR previews,
+staging's `amplify_preview_branch_patterns = ["**"]` makes Amplify create a
+branch deployment for every pushed branch, PR or not; those are what the
+reconcile's branch-deployment arm inspects, deleting only ones whose PRs have
+all closed.
+
 ## CI / Terraform Pipeline
 
-Five workflows handle CI, infrastructure, deployment, and drift detection:
+Seven workflows handle CI, infrastructure, deployment, previews, and drift detection:
 
 - **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled, and verifies the committed provider lock files (`Lock check`, which no-ops when `infra/terraform` is untouched).
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
 - **Deploy API (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
 - **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends in anything other than `SUCCEED` stops the promotion; as with the other two paths, nothing waits for a human.
+- **Preview Comment (`preview-comment.yml`)** - Runs on PRs (same-repo only) that touch `apps/web/**` or `packages/shared/**`. Waits for Amplify's native "AWS Amplify Console Web Preview" check and posts (or updates) a sticky PR comment with the preview URL. Holds no AWS credentials. See [PR preview deploys](#pr-preview-deploys).
+- **Preview Teardown (`preview-teardown.yml`)** - Updates the sticky comment when a PR closes (Amplify deletes the preview branch itself), and runs a daily reconcile (also manually dispatchable) that deletes preview branches Amplify's own teardown missed.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 
 ### Pull requests (internal)

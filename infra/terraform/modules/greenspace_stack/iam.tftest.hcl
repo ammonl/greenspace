@@ -211,3 +211,38 @@ run "ses_sender_domain_reject_invalid" {
 
   expect_failures = [var.ses_sender_domain]
 }
+
+# The deploy role's `amplify:DeleteBranch` is conditional on
+# `amplify_enable_preview_branches`, and that condition is a security property:
+# the preview-teardown reconcile needs to reclaim leaked preview branches on
+# the staging app, while an environment without previews (prod) must hold no
+# delete grant on the Amplify app whose `main` branch backs its live domain
+# association. No other guard in this module covers the ci_deploy role, so
+# these two are what stops a future edit from lifting DeleteBranch out of the
+# ternary and quietly arming the prod deploy role.
+run "ci_deploy_role_holds_no_delete_branch_without_previews" {
+  command = plan
+
+  # amplify_enable_preview_branches defaults to false, matching prod. The
+  # assertion reads `local.ci_deploy_amplify_actions` rather than the rendered
+  # policy document because the document's json is unknown at plan time (its
+  # resources reference the Amplify app ARN); the local is the statement's
+  # single source of actions, same pattern as `ci_terraform_granted_actions`.
+  assert {
+    condition     = !contains(local.ci_deploy_amplify_actions, "amplify:DeleteBranch")
+    error_message = "The CI deploy role must not hold amplify:DeleteBranch when amplify_enable_preview_branches is false. That environment has no preview branches to reclaim, and the grant would let the unattended deploy role delete the branch backing the environment's live domain association."
+  }
+}
+
+run "ci_deploy_role_gains_delete_branch_with_previews" {
+  command = plan
+
+  variables {
+    amplify_enable_preview_branches = true
+  }
+
+  assert {
+    condition     = contains(local.ci_deploy_amplify_actions, "amplify:DeleteBranch")
+    error_message = "The CI deploy role must hold amplify:DeleteBranch when amplify_enable_preview_branches is true — the preview-teardown reconcile depends on it to reclaim leaked preview branches."
+  }
+}

@@ -352,7 +352,14 @@ reports `SUCCEED` and fails the step on `FAILED`/`CANCELLING`/`CANCELLED`.
 This applies to the `main` branch only. Staging additionally sets
 `amplify_enable_preview_branches = true`, and the auto-created preview branches
 *do* build themselves — `auto_branch_creation_config` sets `enable_auto_build`
-for them independently. Prod sets it to `false` and has no preview branches.
+for them independently. The same flag turns on `enable_pull_request_preview`,
+so Amplify natively builds an ephemeral `pr-<number>` branch for every PR
+(reported on the PR as the "AWS Amplify Console Web Preview" check and torn
+down by Amplify on close), and it gates the deploy role's
+`amplify:DeleteBranch` grant, which the `Preview Teardown` reconcile uses to
+reclaim leaked preview branches — see the *PR preview deploys* section in the
+root `README.md`. Prod sets it to `false`: no preview branches, and no
+branch-delete grant on the app serving the production domain.
 
 Neither environment is deployed by hand, and production is not held for a
 human: `deploy-web-prod` declares `needs: deploy-web-staging`, so it runs
@@ -383,6 +390,11 @@ protection — the only fix is for the job to always run, which is why
 
 Until `Lock check` is added to the branch protection rule it reports but
 blocks nothing; nothing in the workflows gates the apply jobs on it.
+
+The `Post preview URL` job (`preview-comment.yml`) must also stay out of this
+table: it is a comment-poster that goes red on any Amplify hiccup, and it only
+runs on PRs touching web paths, so requiring it would both block merges on
+preview noise and dead-lock PRs it never runs on.
 
 #### How to verify
 

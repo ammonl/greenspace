@@ -1,0 +1,171 @@
+name: Preview Teardown
+
+# Reclaims per-PR Amplify preview branches. Amplify's native pull-request
+# previews delete their `pr-<number>` branch when the PR closes, but that
+# teardown is webhook-driven and can be missed — and an un-torn-down preview
+# is a running cost nobody notices. Mirroring un17-calendar's model, a daily
+# reconcile (plus manual dispatch) deletes any leaked preview, and the close
+# event updates the sticky preview comment.
+#
+# The reconcile is the only job holding AWS credentials, and `id-token` is
+# granted at that job's level only: the close-event job fires on
+# `pull_request`, which runs the PR head's copy of this file, and a job that
+# can mint an OIDC token from that trigger could assume any role trusting the
+# `pull_request` subject. The ref condition on the reconcile keeps an
+# accidental `workflow_dispatch` from a feature branch from running a stale
+# copy; it is not a security boundary (a dispatched ref runs its own copy of
+# this file, guard included) — the boundary is that the role trust and the
+# `staging` environment are only reachable from refs that passed review.
+
+on:
+  pull_request:
+    types: [closed]
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: "eu-north-1"
+
+jobs:
+  close-comment:
+    name: Mark preview torn down
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      # Same group as Preview Comment so closing the PR supersedes a wait
+      # still in flight for it.
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Mark the preview comment as torn down
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- preview-deploy -->"))][0].id // empty')
+          if [ -n "$COMMENT_ID" ]; then
+            BODY_FILE="$RUNNER_TEMP/preview-comment.md"
+            printf '%s\n' \
+              "<!-- preview-deploy -->" \
+              "### Preview deploy" \
+              "" \
+              "This PR is closed; Amplify tears the preview down. The daily reconcile deletes it if that teardown was missed." \
+              > "$BODY_FILE"
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Updated preview comment $COMMENT_ID"
+          else
+            echo "No preview comment to update"
+          fi
+
+  reconcile:
+    name: Reconcile leaked previews
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The staging environment's OIDC subject is what the ci-deploy role
+    # trusts, and it scopes the environment-level AMPLIFY_APP_ID variable.
+    environment: staging
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: preview-reconcile
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete preview branches whose PR is gone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_ID: ${{ vars.AMPLIFY_APP_ID }}
+        run: |
+          set -euo pipefail
+          aws amplify list-branches \
+            --app-id "$APP_ID" \
+            --query 'branches[].branchName' --output json |
+            jq -r '.[]' > "$RUNNER_TEMP/branches.txt"
+          # A failed delete (e.g. Amplify's own teardown won the race after the
+          # list above) must not abort the sweep — collect and report at the end.
+          FAILED=0
+          while IFS= read -r BRANCH; do
+            if [ "$BRANCH" = "main" ]; then
+              # Fast-path guard for the branch backing the domain
+              # association. The branch-deployment arm below would keep it
+              # anyway (it has never been a PR head), and that arm is the real
+              # backstop if amplify_branch_name is ever not `main`.
+              continue
+            fi
+            SUFFIX="${BRANCH#pr-}"
+            if [ "$SUFFIX" != "$BRANCH" ] && [ -n "$SUFFIX" ] && [ -z "${SUFFIX//[0-9]/}" ]; then
+              # Native Amplify preview branch, keyed by PR number — the suffix
+              # is purely numeric. (A git branch that merely starts with `pr-`
+              # falls through to the branch-deployment arm, so its fate is
+              # never decided by an unrelated PR's state.) Only a
+              # confirmed-closed PR triggers deletion, so a transient API
+              # failure cannot tear down an active preview.
+              STATE=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${SUFFIX}" \
+                --jq .state 2>/dev/null || echo unknown)
+              if [ "$STATE" = "closed" ]; then
+                echo "Deleting leaked preview branch $BRANCH (PR closed)"
+                aws amplify delete-branch \
+                  --app-id "$APP_ID" \
+                  --branch-name "$BRANCH" || FAILED=1
+              else
+                echo "Keeping $BRANCH (PR state: $STATE)"
+              fi
+              continue
+            fi
+            # Auto-created branch deployment named after a git branch. Delete
+            # only when it demonstrably belonged to a PR that is now closed;
+            # a branch deployment that never had a PR (a demo branch, a
+            # manually pinned build) is not this workflow's to reclaim, so it
+            # is logged and kept.
+            OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "$BRANCH" --state open --limit 100 \
+              --json number --jq 'length')
+            EVER=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "$BRANCH" --state all --limit 100 \
+              --json number --jq 'length')
+            if [ "$OPEN" != "0" ]; then
+              echo "Keeping $BRANCH (open PRs: $OPEN)"
+            elif [ "$EVER" != "0" ]; then
+              echo "Deleting leaked preview branch $BRANCH (its PRs are all closed)"
+              aws amplify delete-branch \
+                --app-id "$APP_ID" \
+                --branch-name "$BRANCH" || FAILED=1
+            else
+              echo "Keeping $BRANCH (never had a PR — not a preview)"
+            fi
+          done < "$RUNNER_TEMP/branches.txt"
+          if [ "$FAILED" != "0" ]; then
+            echo "::error::One or more delete-branch calls failed; see log above"
+            exit 1
+          fi

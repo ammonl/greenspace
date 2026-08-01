@@ -115,7 +115,7 @@ variable "amplify_enable_auto_build" {
 }
 
 variable "amplify_enable_preview_branches" {
-  description = "Enable automatic branch creation for preview environments on feature branch PRs."
+  description = "Enable Amplify preview environments: automatic branch creation for matching pushed branches, native pull-request previews (pr-<n> branches), and — because those branches then need reclamation — the deploy role's amplify:DeleteBranch grant on this environment's app. Enabling this hands the unattended CI deploy role branch-delete on the app serving the environment's domain, so keep it false anywhere that app is production-facing."
   type        = bool
   default     = false
 }
