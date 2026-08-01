@@ -115,15 +115,30 @@ The API runs as an AWS Lambda function with a public Function URL.
 - **Lambda Function URL**: Terraform provisions the Lambda function and Function URL. The `api_base_url` output contains the public endpoint for each environment.
 - **No Lambda versions**: deploys update `$LATEST` only — the Function URL and the EventBridge schedule both invoke the unqualified function, and there is no alias or provisioned concurrency to serve a numbered version. Roll back by reverting the commit on `main` (or redeploying the previous artifact onto `$LATEST`); see [`docs/runbooks/launch-checklist.md`](docs/runbooks/launch-checklist.md).
 
-### GitHub environment variables (deploy)
+## GitHub variables (deploy)
 
-Each GitHub environment (`staging`, `production`) needs these variables:
+Read by the deploy workflows — `Deploy API` (`deploy.yml`) and `Deploy Web`
+(`deploy-web.yml`) — and, in the case of `API_FUNCTION_NAME`, by
+`terraform.yml`'s staging verification step as well. The role ARNs are
+repo-level; the rest are set per GitHub environment (`staging`, `production`).
 
 | Variable                  | Purpose                                  |
 | ------------------------- | ---------------------------------------- |
-| `DEPLOY_ROLE_ARN_STAGING` | OIDC role ARN for staging API deployment (repo-level) |
-| `DEPLOY_ROLE_ARN_PROD`    | OIDC role ARN for production API deployment (repo-level) |
+| `DEPLOY_ROLE_ARN_STAGING` | OIDC role ARN for staging deployment, API and web (repo-level) |
+| `DEPLOY_ROLE_ARN_PROD`    | OIDC role ARN for production deployment, API and web (repo-level) |
 | `API_FUNCTION_NAME`       | Lambda function name (environment-level, e.g. `greenspace-staging-2026-api`) |
+| `AMPLIFY_APP_ID`          | Amplify app ID the `Deploy Web` workflow builds (environment-level) |
+
+`AMPLIFY_APP_ID` has to be set per environment, not repo-wide: staging and
+production each provision their own `aws_amplify_app`, so the two environments
+hold different app IDs. A single repo-level value would point both jobs at one
+app, and each environment's deploy role is scoped to its own Amplify app ARN
+(the `AmplifyDeploy` statement in `modules/greenspace_stack/iam.tf`) — so
+whichever job does not own that app fails with `AccessDenied` on
+`amplify:StartJob`. A build never lands on the wrong environment; it just goes
+red. `deploy-web.yml` resolves an unset variable to an empty string and fails
+inside `aws amplify start-job`, so a missing value surfaces as an AWS CLI error
+rather than a config check.
 
 ## CI / Terraform Pipeline
 
@@ -131,7 +146,7 @@ Five workflows handle CI, infrastructure, deployment, and drift detection:
 
 - **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled, and verifies the committed provider lock files (`Lock check`, which no-ops when `infra/terraform` is untouched).
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
-- **Deploy (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
+- **Deploy API (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
 - **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends in anything other than `SUCCEED` stops the promotion; as with the other two paths, nothing waits for a human.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 

@@ -141,9 +141,11 @@ Production infrastructure is deployed via the Terraform workflow on merge to `ma
 - [x] SNS alarm subscription confirmed
   - Topic: `greenspace-prod-2026-alarms`
 
-### 2.3 Application Deploy
+### 2.3 API Deploy
 
-Application code is deployed via the Deploy API workflow on merge to `main`.
+The API is deployed via the `Deploy API` workflow (`deploy.yml`) on merge to
+`main`, triggered by changes under `apps/api/**` or `packages/shared/**`. This
+covers the backend only — the frontend ships on its own path, section 2.4.
 
 1. Merge the latest code to `main` (or trigger `workflow_dispatch`)
 2. Monitor the `Deploy (staging)` job — confirm health check passes
@@ -154,14 +156,59 @@ Application code is deployed via the Deploy API workflow on merge to `main`.
 
 **Completed:** [Deploy run #22753594618](https://github.com/ammonlarson/greenspace/actions/runs/22753594618) — staging deployed (health check passed), prod deployed (health check passed) (2026-03-06)
 
-### 2.4 Database Setup
+### 2.4 Web Deploy
+
+The Next.js frontend is deployed via the `Deploy Web` workflow
+(`deploy-web.yml`) on merge to `main`, triggered by changes under `apps/web/**`
+or `packages/shared/**`. A change to `packages/shared/**` triggers both this
+workflow and the API deploy in 2.3; they run independently, in no guaranteed
+order.
+
+`workflow_dispatch` also works, but unlike 2.3 it ignores the ref you dispatch
+from: the workflow never checks out the repository and passes `--branch-name
+main` to Amplify, so a dispatch from a feature branch builds `main`. Use it to
+re-run a deploy, not to preview a branch.
+
+Each job starts an Amplify `RELEASE` build with `aws amplify start-job` against
+the environment's `AMPLIFY_APP_ID`, then polls `aws amplify get-job` every 30
+seconds. **There is no HTTP health check on this path** — the Amplify job status
+is the whole verdict.
+
+1. Merge the latest code to `main` (or trigger `workflow_dispatch`)
+2. Monitor the `Deploy Web (staging)` job — the step log prints
+   `Build status: <STATUS>` on each poll; wait for `SUCCEED`
+3. `Deploy Web (prod)` starts on its own once the staging build reports
+   `SUCCEED`: it declares `needs: deploy-web-staging`, so a staging build that
+   ends in anything else stops the promotion. Prod runs unattended — as with the
+   API and Terraform paths, there is nothing to approve
+4. Confirm the prod build also reports `SUCCEED`
+
+**Reading the outcome:**
+
+| Signal | Meaning |
+|--------|---------|
+| `Build status: SUCCEED` | Build finished; the job exits 0 and the deploy is live |
+| `::error::Build FAILED` (also `CANCELLING`, `CANCELLED`) | The job fails on that line. The GitHub log says only which status was hit — open the Amplify console for the app ID and read the build log for the cause |
+| Job still running past ~30 min | The 30-minute job timeout cancels it. Amplify keeps building; re-check the console before restarting |
+
+A failed `Deploy Web (staging)` leaves production on its previous build, since
+`deploy-web-prod` never starts. Roll back by reverting the commit on `main` and
+letting the workflow run again, or by redeploying a previous Amplify job from the
+console.
+
+**Completed:** not recorded. This section was written after the 2026-03-06
+cutover, and no `Deploy Web` run was captured at the time the way 2.1–2.3
+captured theirs. Link the run the next time this workflow deploys to production.
+The missing link is a gap in the record, not outstanding work.
+
+### 2.5 Database Setup
 
 - [x] Run migrations against production database
 - [x] Run seed script (greenhouses, boxes, system settings, admin accounts)
 - [x] Verify seed data with the queries from section 1.2
 - [x] Change admin passwords from seed defaults immediately
 
-### 2.5 Post-Deploy Configuration
+### 2.6 Post-Deploy Configuration
 
 - [x] Set opening datetime to `2026-04-01T10:00:00 Europe/Copenhagen` via admin API
 - [x] Verify `/public/status` returns `isOpen: false` (before opening)
