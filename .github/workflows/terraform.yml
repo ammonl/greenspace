@@ -338,6 +338,7 @@ jobs:
     name: "Verify (staging)"
     needs: apply-staging
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: staging
     steps:
       - name: Configure AWS credentials (OIDC)
@@ -348,22 +349,36 @@ jobs:
 
       - name: Get Function URL
         id: url
+        env:
+          API_FUNCTION_NAME: ${{ vars.API_FUNCTION_NAME }}
         run: |
+          if [ -z "$API_FUNCTION_NAME" ]; then
+            echo "::error::API_FUNCTION_NAME variable is not set for the staging environment"
+            exit 1
+          fi
           URL=$(aws lambda get-function-url-config \
-            --function-name "${{ vars.API_FUNCTION_NAME }}" \
+            --function-name "$API_FUNCTION_NAME" \
             --query 'FunctionUrl' --output text)
+          if [ -z "$URL" ] || [ "$URL" = "None" ]; then
+            echo "::error::Function $API_FUNCTION_NAME has no Function URL configured"
+            exit 1
+          fi
           echo "api_url=$URL" >> "$GITHUB_OUTPUT"
 
       # /public/status executes real DB reads, so a 200 here proves the
       # applied stack end to end (Lambda → VPC/networking → RDS), not just
       # that the function is reachable. Retries cover ENI/DNS settling
-      # right after a networking apply.
+      # right after a networking apply; failing requests return fast, so
+      # the budget is sized for settling time, not request time.
       - name: Check staging /public/status
+        env:
+          API_URL: ${{ steps.url.outputs.api_url }}
         run: |
-          ATTEMPTS=6
+          ATTEMPTS=10
           for i in $(seq 1 "$ATTEMPTS"); do
-            STATUS=$(curl -s -o /tmp/status-response.json -w '%{http_code}' \
-              "${{ steps.url.outputs.api_url }}public/status" || true)
+            rm -f /tmp/status-response.json
+            STATUS=$(curl -s --max-time 20 -o /tmp/status-response.json -w '%{http_code}' \
+              "${API_URL%/}/public/status" || true)
             STATUS=${STATUS:-000}
             echo "Attempt $i/$ATTEMPTS: HTTP $STATUS"
             if [ "$STATUS" = "200" ] && jq -e '.serverTime' /tmp/status-response.json > /dev/null 2>&1; then
@@ -383,11 +398,11 @@ jobs:
     name: "Apply (prod)"
     needs: [detect-staging, detect-prod, apply-staging, verify-staging]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.detect-prod.outputs.has_changes == 'true' &&
       needs.detect-prod.result == 'success' &&
       needs.detect-staging.result == 'success' &&
-      (needs.apply-staging.result == 'skipped' ||
+      (needs.detect-staging.outputs.has_changes == 'false' ||
       (needs.apply-staging.result == 'success' && needs.verify-staging.result == 'success'))
     runs-on: ubuntu-latest
     environment: production
