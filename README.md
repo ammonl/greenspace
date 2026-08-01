@@ -191,7 +191,11 @@ behavior is not reflected in the preview backend until it lands on `main`.
 Previews also share the staging database with anything else exercising
 staging, so two reviewers registering the same box can collide. And Amplify
 builds a preview for *every* PR, path-filtered or not — the workflows filter
-which PRs get a comment, not which get a build.
+which PRs get a comment, not which get a build. Separately from PR previews,
+staging's `amplify_preview_branch_patterns = ["**"]` makes Amplify create a
+branch deployment for every pushed branch, PR or not; those are what the
+reconcile's branch-deployment arm inspects, deleting only ones whose PRs have
+all closed.
 
 ## CI / Terraform Pipeline
 

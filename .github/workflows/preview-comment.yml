@@ -11,9 +11,10 @@ name: Preview Comment
 # check is easy to overlook, so this workflow waits for it and posts its URL
 # as a sticky comment.
 #
-# This job needs no AWS credentials — deliberately. A `pull_request` workflow
-# runs the PR head's copy of this file, so nothing reachable from this trigger
-# may hold a deploy role.
+# This workflow holds no AWS credentials and no `id-token` permission —
+# deliberately. A `pull_request` workflow runs the PR head's copy of this
+# file, so nothing reachable from this trigger may be able to mint an OIDC
+# token or assume a deploy role.
 #
 # Isolation: the staging Amplify app pins API_URL at the app level to the
 # staging Lambda, so previews talk to the staging API and staging database
@@ -34,8 +35,13 @@ permissions:
   checks: read
   pull-requests: write
 
+env:
+  AMPLIFY_CHECK_NAME: "AWS Amplify Console Web Preview"
+
 jobs:
   preview-comment:
+    # Do not add this job to the required PR status checks: it reddens on any
+    # Amplify hiccup and must never block a merge.
     name: Post preview URL
     # Fork PRs get a read-only token that cannot comment; skip them.
     if: github.event.pull_request.head.repo.fork == false
@@ -56,10 +62,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
           for ATTEMPT in $(seq 1 56); do
-            MATCHES=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
-              --paginate \
-              --jq '.check_runs[] | select(.name == "AWS Amplify Console Web Preview") | "\(.status) \(.conclusion) \(.details_url)"')
+            # `|| true`: a transient GitHub API error must not fail the job —
+            # and thereby mark the sticky comment stale — over a blip the next
+            # iteration would absorb.
+            MATCHES=$(gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+              -f check_name="$AMPLIFY_CHECK_NAME" --paginate \
+              --jq '.check_runs[] | "\(.status) \(.conclusion) \(.details_url)"' || true)
             RESULT=$(printf '%s\n' "$MATCHES" | head -n 1)
             STATUS=$(printf '%s' "$RESULT" | cut -d' ' -f1)
             echo "Amplify preview check: ${STATUS:-not yet reported} (attempt $ATTEMPT)"
@@ -74,7 +84,9 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Amplify preview check never completed for $HEAD_SHA"
+          echo "::error::No completed '$AMPLIFY_CHECK_NAME' check for $HEAD_SHA — either previews are disabled on the Amplify app or the check has been renamed. Checks that did report:"
+          gh api -X GET "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+            --paginate --jq '.check_runs[].name' || true
           exit 1
 
       - name: Post or update the sticky preview comment
@@ -84,6 +96,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           URL: ${{ steps.amplify.outputs.url }}
         run: |
+          set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/preview-comment.md"
           printf '%s\n' \
             "<!-- preview-deploy -->" \
@@ -112,7 +125,9 @@ jobs:
           fi
 
       # A failed or missing build must not leave the sticky comment pointing a
-      # reviewer at the previous commit's preview as if it were current.
+      # reviewer at the previous commit's preview as if it were current — and
+      # a first push that fails outright still deserves an in-thread
+      # explanation, so this upserts rather than only updating.
       - name: Mark the preview comment stale on failure
         if: failure()
         env:
@@ -120,20 +135,23 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/preview-comment.md"
+          printf '%s\n' \
+            "<!-- preview-deploy -->" \
+            "### Preview deploy" \
+            "" \
+            "The preview build for $HEAD_SHA did not succeed — any previously posted URL is stale. See the Post preview URL workflow logs." \
+            > "$BODY_FILE"
           COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --paginate \
             --jq '[.[] | select(.body | startswith("<!-- preview-deploy -->"))][0].id // empty')
           if [ -n "$COMMENT_ID" ]; then
-            BODY_FILE="$RUNNER_TEMP/preview-comment.md"
-            printf '%s\n' \
-              "<!-- preview-deploy -->" \
-              "### Preview deploy" \
-              "" \
-              "The preview build for $HEAD_SHA did not succeed — any previously posted URL is stale." \
-              > "$BODY_FILE"
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
               -F body=@"$BODY_FILE" > /dev/null
             echo "Marked preview comment $COMMENT_ID stale"
           else
-            echo "No preview comment to mark stale"
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Posted failure comment"
           fi
