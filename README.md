@@ -142,16 +142,33 @@ rather than a config check.
 
 ## PR preview deploys
 
-Every same-repo PR that touches `apps/web/**` or `packages/shared/**` gets an
-ephemeral preview of the web app, published as a sticky comment on the PR
-(`preview-deploy.yml`). The mechanism is an Amplify branch on the **staging**
-app, named after the PR's head branch and built with the same
-`aws amplify start-job --job-type RELEASE` call `deploy-web.yml` uses for
-`main`. The preview URL is the branch's default Amplify domain
-(`https://<branch>.<app>.amplifyapp.com`, with `/` in branch names becoming
-`-`). No new GitHub variables: the workflow assumes `DEPLOY_ROLE_ARN_STAGING`
-through the `staging` environment and reads that environment's
-`AMPLIFY_APP_ID`.
+The preview deploy itself is **Amplify's native pull-request preview**: the
+staging Amplify app is connected to this repository through the Amplify GitHub
+App with `enable_pull_request_preview` set (staging sets
+`amplify_enable_preview_branches = true`; see
+`modules/greenspace_stack/amplify.tf`), so every PR gets an ephemeral
+`pr-<number>` branch that Amplify builds, serves at
+`https://pr-<number>.<app>.amplifyapp.com`, reports as an
+"AWS Amplify Console Web Preview" check run, and tears down when the PR
+closes. That check is easy to overlook — the ticket that produced this section
+was filed about a PR that had one — so two thin workflows make the previews
+reviewable and reclaimed:
+
+- **Preview Comment (`preview-comment.yml`)** waits for the Amplify check on
+  same-repo PRs touching `apps/web/**` or `packages/shared/**` and posts its
+  URL as a sticky PR comment (updating it in place on each push, and marking
+  it stale if a build fails). It runs with no AWS credentials at all — a
+  `pull_request` workflow executes the PR head's copy of the file, so nothing
+  reachable from that trigger may hold a deploy role.
+- **Preview Teardown (`preview-teardown.yml`)** updates the sticky comment on
+  close (Amplify itself deletes the `pr-<n>` branch) and runs a daily
+  reconcile — also manually dispatchable — that deletes leaked preview
+  branches: `pr-<n>` branches whose PR is confirmed closed, and auto-created
+  branch previews whose PRs have all closed. Branch deployments that never had
+  a PR are logged and kept, not reclaimed. The reconcile is the only job with
+  AWS credentials, and it never runs from a `pull_request` trigger; the
+  `amplify:DeleteBranch` grant it needs exists only in environments with
+  previews enabled (staging), never on the prod app.
 
 **Isolation.** Previews cannot reach production data or email real residents,
 structurally rather than by convention:
@@ -165,17 +182,16 @@ structurally rather than by convention:
   production database. Any email a preview triggers goes through the staging
   API's SES sender (`staging.un17hub.com`) to whatever address a reviewer typed
   into the preview — it has no resident addresses to send to.
-- Fork PRs get no preview at all: they receive no OIDC credentials, and the
+- Fork PRs get no preview comment: their token cannot comment, and the
   workflow skips them explicitly.
-
-**Teardown.** Closing the PR deletes the Amplify branch
-(`preview-teardown.yml`). A daily reconcile job (also manually dispatchable)
-deletes any non-`main` branch on the staging app that has no open PR, so a
-missed close event cannot leave a preview running indefinitely.
 
 **Limits.** The preview builds the PR's *web* code against the staging API,
 which runs `main`'s API code — a `packages/shared` change that alters API
 behavior is not reflected in the preview backend until it lands on `main`.
+Previews also share the staging database with anything else exercising
+staging, so two reviewers registering the same box can collide. And Amplify
+builds a preview for *every* PR, path-filtered or not — the workflows filter
+which PRs get a comment, not which get a build.
 
 ## CI / Terraform Pipeline
 
@@ -185,8 +201,8 @@ Seven workflows handle CI, infrastructure, deployment, previews, and drift detec
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
 - **Deploy API (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
 - **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends in anything other than `SUCCEED` stops the promotion; as with the other two paths, nothing waits for a human.
-- **Preview Deploy (`preview-deploy.yml`)** - Runs on PRs (same-repo only) that touch `apps/web/**` or `packages/shared/**`. Creates an Amplify branch on the *staging* app named after the PR's head branch, builds it with the same `start-job RELEASE` mechanism `deploy-web.yml` uses, and posts (or updates) a sticky PR comment with the preview URL. See [PR preview deploys](#pr-preview-deploys).
-- **Preview Teardown (`preview-teardown.yml`)** - Deletes the PR's Amplify preview branch when the PR closes, and runs a daily reconcile (also manually dispatchable) that deletes any preview branch left without an open PR.
+- **Preview Comment (`preview-comment.yml`)** - Runs on PRs (same-repo only) that touch `apps/web/**` or `packages/shared/**`. Waits for Amplify's native "AWS Amplify Console Web Preview" check and posts (or updates) a sticky PR comment with the preview URL. Holds no AWS credentials. See [PR preview deploys](#pr-preview-deploys).
+- **Preview Teardown (`preview-teardown.yml`)** - Updates the sticky comment when a PR closes (Amplify deletes the preview branch itself), and runs a daily reconcile (also manually dispatchable) that deletes preview branches Amplify's own teardown missed.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 
 ### Pull requests (internal)

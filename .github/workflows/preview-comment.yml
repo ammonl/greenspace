@@ -1,0 +1,139 @@
+name: Preview Comment
+
+# Surfaces the per-PR preview URL where reviewers actually look.
+#
+# The preview deploy itself is Amplify's native pull-request preview: the
+# staging Amplify app is connected to this repository through the Amplify
+# GitHub App with `enable_pull_request_preview` set (see
+# `modules/greenspace_stack/amplify.tf` and the staging environment), so every
+# PR gets an ephemeral `pr-<number>` branch built and torn down by Amplify
+# itself, reported as an "AWS Amplify Console Web Preview" check run. That
+# check is easy to overlook, so this workflow waits for it and posts its URL
+# as a sticky comment.
+#
+# This job needs no AWS credentials — deliberately. A `pull_request` workflow
+# runs the PR head's copy of this file, so nothing reachable from this trigger
+# may hold a deploy role.
+#
+# Isolation: the staging Amplify app pins API_URL at the app level to the
+# staging Lambda, so previews talk to the staging API and staging database
+# only. Production is a separate Amplify app, Lambda, and database — a preview
+# has no path to production registration data, and any email it triggers goes
+# through the staging API's SES sender to addresses typed into the preview,
+# never to resident data (which only exists in production).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: write
+
+jobs:
+  preview-comment:
+    name: Post preview URL
+    # Fork PRs get a read-only token that cannot comment; skip them.
+    if: github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      # Shared with Preview Teardown so a close event supersedes an in-flight
+      # wait for the same PR.
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Wait for the Amplify preview check
+        id: amplify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          for ATTEMPT in $(seq 1 56); do
+            MATCHES=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+              --paginate \
+              --jq '.check_runs[] | select(.name == "AWS Amplify Console Web Preview") | "\(.status) \(.conclusion) \(.details_url)"')
+            RESULT=$(printf '%s\n' "$MATCHES" | head -n 1)
+            STATUS=$(printf '%s' "$RESULT" | cut -d' ' -f1)
+            echo "Amplify preview check: ${STATUS:-not yet reported} (attempt $ATTEMPT)"
+            if [ "$STATUS" = "completed" ]; then
+              CONCLUSION=$(printf '%s' "$RESULT" | cut -d' ' -f2)
+              if [ "$CONCLUSION" != "success" ]; then
+                echo "::error::Amplify preview build finished with conclusion $CONCLUSION"
+                exit 1
+              fi
+              printf 'url=%s\n' "$(printf '%s' "$RESULT" | cut -d' ' -f3)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Amplify preview check never completed for $HEAD_SHA"
+          exit 1
+
+      - name: Post or update the sticky preview comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          URL: ${{ steps.amplify.outputs.url }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/preview-comment.md"
+          printf '%s\n' \
+            "<!-- preview-deploy -->" \
+            "### Preview deploy" \
+            "" \
+            "| | |" \
+            "| --- | --- |" \
+            "| URL | $URL |" \
+            "| Commit | $HEAD_SHA |" \
+            "| Backend | staging API + staging database (no production data) |" \
+            "" \
+            "Amplify tears the preview down when this PR closes." \
+            > "$BODY_FILE"
+
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- preview-deploy -->"))][0].id // empty')
+          if [ -n "$COMMENT_ID" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Updated existing preview comment $COMMENT_ID"
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Posted preview comment"
+          fi
+
+      # A failed or missing build must not leave the sticky comment pointing a
+      # reviewer at the previous commit's preview as if it were current.
+      - name: Mark the preview comment stale on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- preview-deploy -->"))][0].id // empty')
+          if [ -n "$COMMENT_ID" ]; then
+            BODY_FILE="$RUNNER_TEMP/preview-comment.md"
+            printf '%s\n' \
+              "<!-- preview-deploy -->" \
+              "### Preview deploy" \
+              "" \
+              "The preview build for $HEAD_SHA did not succeed — any previously posted URL is stale." \
+              > "$BODY_FILE"
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Marked preview comment $COMMENT_ID stale"
+          else
+            echo "No preview comment to mark stale"
+          fi
