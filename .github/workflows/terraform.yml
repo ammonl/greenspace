@@ -356,9 +356,12 @@ jobs:
             echo "::error::API_FUNCTION_NAME variable is not set for the staging environment"
             exit 1
           fi
-          URL=$(aws lambda get-function-url-config \
+          if ! URL=$(aws lambda get-function-url-config \
             --function-name "$API_FUNCTION_NAME" \
-            --query 'FunctionUrl' --output text)
+            --query 'FunctionUrl' --output text); then
+            echo "::error::Could not read the Function URL config for $API_FUNCTION_NAME"
+            exit 1
+          fi
           if [ -z "$URL" ] || [ "$URL" = "None" ]; then
             echo "::error::Function $API_FUNCTION_NAME has no Function URL configured"
             exit 1
@@ -368,8 +371,9 @@ jobs:
       # /public/status executes real DB reads, so a 200 here proves the
       # applied stack end to end (Lambda → VPC/networking → RDS), not just
       # that the function is reachable. Retries cover ENI/DNS settling
-      # right after a networking apply; failing requests return fast, so
-      # the budget is sized for settling time, not request time.
+      # right after a networking apply: nine 10s waits give ~90s of
+      # settling, and --max-time caps any single hung request so one
+      # stalled attempt can't eat the budget.
       - name: Check staging /public/status
         env:
           API_URL: ${{ steps.url.outputs.api_url }}
@@ -377,7 +381,7 @@ jobs:
           ATTEMPTS=10
           for i in $(seq 1 "$ATTEMPTS"); do
             rm -f /tmp/status-response.json
-            STATUS=$(curl -s --max-time 20 -o /tmp/status-response.json -w '%{http_code}' \
+            STATUS=$(curl -sS --max-time 20 -o /tmp/status-response.json -w '%{http_code}' \
               "${API_URL%/}/public/status" || true)
             STATUS=${STATUS:-000}
             echo "Attempt $i/$ATTEMPTS: HTTP $STATUS"
@@ -391,7 +395,9 @@ jobs:
             fi
           done
           echo "::error::Staging /public/status check failed after $ATTEMPTS attempts (last HTTP $STATUS)"
-          cat /tmp/status-response.json || true
+          if [ -f /tmp/status-response.json ]; then
+            cat /tmp/status-response.json
+          fi
           exit 1
 
   apply-prod:
@@ -402,7 +408,8 @@ jobs:
       needs.detect-prod.outputs.has_changes == 'true' &&
       needs.detect-prod.result == 'success' &&
       needs.detect-staging.result == 'success' &&
-      (needs.detect-staging.outputs.has_changes == 'false' ||
+      ((needs.detect-staging.outputs.has_changes == 'false' &&
+      needs.apply-staging.result == 'skipped') ||
       (needs.apply-staging.result == 'success' && needs.verify-staging.result == 'success'))
     runs-on: ubuntu-latest
     environment: production
