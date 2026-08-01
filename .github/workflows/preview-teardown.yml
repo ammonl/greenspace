@@ -1,0 +1,127 @@
+name: Preview Teardown
+
+# Reclaims per-PR Amplify preview branches created by preview-deploy.yml.
+# Two paths, mirroring un17-calendar's teardown:
+#   - pull_request closed: delete that PR's preview branch immediately.
+#   - daily reconcile (plus manual dispatch): delete any preview branch whose
+#     PR is no longer open, catching leaks from missed or failed close events.
+# An un-torn-down preview is a running cost nobody notices — when in doubt,
+# reconcile deletes.
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: "eu-north-1"
+
+jobs:
+  teardown:
+    name: Tear down PR preview
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      # Same group as Preview Deploy so closing the PR supersedes a build
+      # still in flight for it.
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete Amplify preview branch
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ "$BRANCH" = "main" ]; then
+            echo "::error::Refusing to delete the main branch deployment"
+            exit 1
+          fi
+          if aws amplify get-branch \
+            --app-id "${{ vars.AMPLIFY_APP_ID }}" \
+            --branch-name "$BRANCH" > /dev/null 2>&1; then
+            aws amplify delete-branch \
+              --app-id "${{ vars.AMPLIFY_APP_ID }}" \
+              --branch-name "$BRANCH"
+            echo "Deleted Amplify branch $BRANCH"
+          else
+            echo "No Amplify branch named $BRANCH — nothing to tear down"
+          fi
+
+      - name: Mark the preview comment as torn down
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.body | startswith("<!-- preview-deploy -->")) | .id' | head -n 1)
+          if [ -n "$COMMENT_ID" ]; then
+            BODY_FILE="$RUNNER_TEMP/preview-comment.md"
+            printf '%s\n' \
+              "<!-- preview-deploy -->" \
+              "### Preview deploy" \
+              "" \
+              "The preview for this PR has been torn down." \
+              > "$BODY_FILE"
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+              -F body=@"$BODY_FILE" > /dev/null
+            echo "Updated preview comment $COMMENT_ID"
+          else
+            echo "No preview comment to update"
+          fi
+
+  reconcile:
+    name: Reconcile leaked previews
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    concurrency:
+      group: preview-reconcile
+      cancel-in-progress: false
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete preview branches without an open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCHES=$(aws amplify list-branches \
+            --app-id "${{ vars.AMPLIFY_APP_ID }}" \
+            --query 'branches[].branchName' --output text)
+          for BRANCH in $BRANCHES; do
+            if [ "$BRANCH" = "main" ]; then
+              continue
+            fi
+            OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "$BRANCH" --state open \
+              --json number --jq 'length')
+            if [ "$OPEN" = "0" ]; then
+              echo "Deleting leaked preview branch $BRANCH (no open PR)"
+              aws amplify delete-branch \
+                --app-id "${{ vars.AMPLIFY_APP_ID }}" \
+                --branch-name "$BRANCH"
+            else
+              echo "Keeping $BRANCH ($OPEN open PR)"
+            fi
+          done

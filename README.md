@@ -140,14 +140,53 @@ red. `deploy-web.yml` resolves an unset variable to an empty string and fails
 inside `aws amplify start-job`, so a missing value surfaces as an AWS CLI error
 rather than a config check.
 
+## PR preview deploys
+
+Every same-repo PR that touches `apps/web/**` or `packages/shared/**` gets an
+ephemeral preview of the web app, published as a sticky comment on the PR
+(`preview-deploy.yml`). The mechanism is an Amplify branch on the **staging**
+app, named after the PR's head branch and built with the same
+`aws amplify start-job --job-type RELEASE` call `deploy-web.yml` uses for
+`main`. The preview URL is the branch's default Amplify domain
+(`https://<branch>.<app>.amplifyapp.com`, with `/` in branch names becoming
+`-`). No new GitHub variables: the workflow assumes `DEPLOY_ROLE_ARN_STAGING`
+through the `staging` environment and reads that environment's
+`AMPLIFY_APP_ID`.
+
+**Isolation.** Previews cannot reach production data or email real residents,
+structurally rather than by convention:
+
+- The staging Amplify app pins `API_URL` at the app level to the **staging**
+  Lambda Function URL, so every preview branch talks to the staging API and the
+  staging database (`rds/shared/greenspace_staging`). Production is a separate
+  Amplify app, Lambda, and database with its own scoped deploy role — there is
+  no configuration a preview branch could inherit that points at it.
+- Resident registrations (names, emails, home addresses) exist only in the
+  production database. Any email a preview triggers goes through the staging
+  API's SES sender (`staging.un17hub.com`) to whatever address a reviewer typed
+  into the preview — it has no resident addresses to send to.
+- Fork PRs get no preview at all: they receive no OIDC credentials, and the
+  workflow skips them explicitly.
+
+**Teardown.** Closing the PR deletes the Amplify branch
+(`preview-teardown.yml`). A daily reconcile job (also manually dispatchable)
+deletes any non-`main` branch on the staging app that has no open PR, so a
+missed close event cannot leave a preview running indefinitely.
+
+**Limits.** The preview builds the PR's *web* code against the staging API,
+which runs `main`'s API code — a `packages/shared` change that alters API
+behavior is not reflected in the preview backend until it lands on `main`.
+
 ## CI / Terraform Pipeline
 
-Five workflows handle CI, infrastructure, deployment, and drift detection:
+Seven workflows handle CI, infrastructure, deployment, previews, and drift detection:
 
 - **CI (`ci.yml`)** - Runs on every PR and push to main. Validates guardrail files, runs app checks (test/lint/build), performs lightweight `terraform fmt -check` + `terraform validate` with the backend disabled, and verifies the committed provider lock files (`Lock check`, which no-ops when `infra/terraform` is untouched).
 - **Terraform (`terraform.yml`)** - Runs when `infra/terraform/**` files change. Authenticates to AWS via GitHub OIDC and operates per environment.
 - **Deploy API (`deploy.yml`)** - Runs when `apps/api/**` or `packages/shared/**` change on main. Builds the Lambda bundle, deploys to staging, runs a health smoke test, then deploys to production.
 - **Deploy Web (`deploy-web.yml`)** - Runs when `apps/web/**` or `packages/shared/**` change on main. Starts an Amplify build for staging and polls it to `SUCCEED`, then does the same for production. `deploy-web-prod` declares `needs: deploy-web-staging`, so a staging build that ends in anything other than `SUCCEED` stops the promotion; as with the other two paths, nothing waits for a human.
+- **Preview Deploy (`preview-deploy.yml`)** - Runs on PRs (same-repo only) that touch `apps/web/**` or `packages/shared/**`. Creates an Amplify branch on the *staging* app named after the PR's head branch, builds it with the same `start-job RELEASE` mechanism `deploy-web.yml` uses, and posts (or updates) a sticky PR comment with the preview URL. See [PR preview deploys](#pr-preview-deploys).
+- **Preview Teardown (`preview-teardown.yml`)** - Deletes the PR's Amplify preview branch when the PR closes, and runs a daily reconcile (also manually dispatchable) that deletes any preview branch left without an open PR.
 - **Drift Detection (`drift-detection.yml`)** - Runs daily on a cron schedule. Runs `terraform plan` for each environment and creates a GitHub issue if drift is detected.
 
 ### Pull requests (internal)
